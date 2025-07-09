@@ -1,0 +1,1073 @@
+# Event-Driven Microservices Architecture Implementation Guide on Google Cloud (Cloud Functions Edition - Refactored for Existing Service Account)
+
+**Author**: Manus AI  
+**Date**: January 9, 2025  
+**Version**: 1.1
+
+## Executive Summary
+
+This document provides a detailed implementation guide for the Event-Driven Microservices Architecture on Google Cloud Platform, specifically tailored for a **full serverless, function-based implementation using Google Cloud Functions**. This refactored guide incorporates the use of your existing service account (`svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`) and Application Default Credentials (ADC) for authentication, providing precise details on service account usage and permissions. It outlines the essential Google Cloud services required, their pricing models, and step-by-step instructions for their creation and deployment, completely eliminating the need for Dockerfile management.
+
+The goal is to transition from a monolithic Python application to a scalable, resilient, and cost-effective distributed system for web scraping and AI-powered content processing. This architecture leverages Google Cloud Functions for compute, Cloud Pub/Sub for asynchronous event communication, Cloud Storage for robust data persistence, and Vertex AI for advanced AI capabilities. By adopting this event-driven, function-based approach, the system can achieve greater decoupling between components, enabling independent scaling, improved fault tolerance, and easier integration of new business cases without managing any container infrastructure.
+
+This guide focuses on practical implementation steps, assuming a hands-on approach to cloud resource provisioning and service deployment. While advanced DevOps practices like CI/CD are not the primary focus, the foundation laid here is compatible with future automation efforts.
+
+## User Provided Service Account Details
+
+For this implementation, we will be using your existing service account:
+
+*   **Project ID**: `gen-lang-client-0306766464`
+*   **Service Account Email**: `svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`
+
+This service account will be assigned the necessary roles to allow your Cloud Functions to interact with other Google Cloud services securely and efficiently. The use of Application Default Credentials (ADC) means that your code, when deployed to Cloud Functions and running under this service account, will automatically find and use these credentials for authentication to Google Cloud APIs.
+
+
+
+
+## Google Cloud Services Overview for Event-Driven Microservices (Cloud Functions Edition)
+
+Implementing an event-driven microservices architecture on Google Cloud Platform (GCP) with a focus on serverless functions involves leveraging a suite of managed services that abstract away much of the underlying infrastructure complexity. This section provides an overview of the core GCP services essential for this architecture, detailing their roles and how they interact to form a cohesive, scalable system, specifically highlighting the use of Google Cloud Functions.
+
+Crucially, all interactions with these services from your Cloud Functions will be authenticated and authorized using your provided service account: `svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`. This service account will need to be granted the appropriate IAM roles for each service it interacts with.
+
+### 1. Google Cloud Functions: The Serverless Function Platform
+
+**Role**: Google Cloud Functions is a serverless execution environment for building and connecting cloud services. With Cloud Functions, you write simple, single-purpose functions that are attached to events emitted from your cloud infrastructure or services. Your function is triggered when an event that it's configured to handle occurs. This is the core compute service for our event-driven architecture, as it allows for a truly function-based, no-Docker approach.
+
+**Key Features for this Architecture**:
+*   **Event-driven Execution**: Functions are triggered by events from Pub/Sub, Cloud Storage, HTTP requests, and more, making it a perfect fit for our asynchronous microservices.
+*   **Fully Managed**: Google handles all the underlying infrastructure, including servers, operating systems, and runtime environments. You just deploy your code.
+*   **Automatic Scaling**: Functions automatically scale up and down based on the number of incoming events, including scaling to zero when idle, optimizing costs.
+*   **Pay-per-use Pricing**: You only pay for the time your function is running and the resources it consumes (CPU, memory, network), not for idle time.
+*   **Multiple Runtimes**: Supports various programming languages, including Python, Node.js, Go, Java, and more.
+
+**Pricing Model**: Cloud Functions pricing is based on invocations, compute time (GB-seconds and CPU-seconds), and network egress. There is a generous free tier that includes 2 million invocations, 400,000 GB-seconds, 200,000 vCPU-seconds, and 5 GB of network egress per month [1]. Beyond the free tier, you pay for:
+*   **Invocations**: Charged per 1 million invocations (e.g., $0.40 per million invocations).
+*   **Compute Time**: Charged per GB-second and vCPU-second. Pricing varies by region (e.g., $0.0000025 per GB-second and $0.00001 per vCPU-second in `us-central1`).
+*   **Network Egress**: Standard network pricing applies for data leaving Google Cloud.
+
+**Example Pricing Scenario**: A Cloud Function processing 5 million invocations per month, using an average of 256 MB memory and 0.1 vCPU for 1 second per invocation, would incur costs primarily for invocations and compute beyond the free tier. For detailed and up-to-date pricing, always refer to the official [Cloud Functions pricing page](https://cloud.google.com/functions/pricing) [1].
+
+### 2. Google Cloud Pub/Sub: The Asynchronous Messaging Backbone
+
+**Role**: Cloud Pub/Sub remains the central nervous system of our event-driven architecture. It enables asynchronous communication and decoupling between our Cloud Functions. When one function completes a task (e.g., scraping data), it publishes an event (a message) to a Pub/Sub topic. Other functions interested in that event subscribe to the topic and are triggered to process the message independently.
+
+**Key Features for this Architecture**:
+*   **Asynchronous Communication**: Decouples senders and receivers, improving system resilience and scalability.
+*   **Durability**: Messages are stored reliably until acknowledged by subscribers.
+*   **Scalability**: Automatically scales to handle millions of messages per second.
+*   **Global Reach**: Messages can be published and consumed globally.
+*   **Native Integration with Cloud Functions**: Cloud Functions can be directly triggered by Pub/Sub messages, simplifying event handling.
+
+**Pricing Model**: Cloud Pub/Sub pricing is primarily based on the volume of data processed (ingested and delivered) and, in some cases, subscription storage. There's a free tier that includes 10 GB of messages per month [2]. Beyond the free tier, you pay for:
+*   **Message Ingress/Egress**: Charged per GB of data. Pricing varies by region (e.g., $0.04 per GB for the first 10 TB in `us-central1`).
+*   **Subscription Storage**: Charged per GB-day for messages retained in subscriptions (e.g., $0.02 per GB-day for messages older than 7 days, or for messages explicitly configured for longer retention).
+
+**Example Pricing Scenario**: A system processing 1 TB of messages per month (500 GB ingress, 500 GB egress) would incur costs based on the data volume. For detailed and up-to-date pricing, always refer to the official [Cloud Pub/Sub pricing page](https://cloud.google.com/pubsub/pricing) [2].
+
+### 3. Google Cloud Storage (GCS): The Scalable Object Storage
+
+**Role**: Cloud Storage is a highly scalable and durable object storage service. It's used to store all the raw and processed data, including scraped session data files, AI batch request JSONL files, and AI batch processing results. GCS acts as a central, accessible repository for data that needs to be shared between different Cloud Functions or used as input/output for batch processes. Cloud Functions can also be directly triggered by GCS events (e.g., file creation).
+
+**Key Features for this Architecture**:
+*   **Scalability and Durability**: Designed for petabytes of data with 99.999999999% (11 nines) annual durability.
+*   **Global Accessibility**: Data can be accessed from anywhere with appropriate permissions.
+*   **Lifecycle Management**: Automate transitions of data to cheaper storage classes (e.g., Nearline, Coldline, Archive) or deletion based on age.
+*   **Event Notifications**: Can trigger events (e.g., Pub/Sub messages or direct Cloud Functions invocations) when objects are created, updated, or deleted, enabling event-driven workflows.
+*   **Integration**: Seamlessly integrates with Vertex AI for batch processing inputs and outputs.
+
+**Pricing Model**: Cloud Storage pricing is based on data storage, network usage, and operations performed. Pricing varies significantly by storage class (Standard, Nearline, Coldline, Archive) and region. There's a free tier that includes 5 GB-months of Standard storage, 5,000 Class A operations, 50,000 Class B operations, and 1 GB of network egress to North America per month [3]. Beyond the free tier, you pay for:
+*   **Data Storage**: Charged per GB-month. (e.g., $0.020 per GB-month for Standard storage in `us-central1`).
+*   **Network Usage**: Charged for data egress (data leaving GCS) and inter-region transfers.
+*   **Operations**: Charged for Class A operations (e.g., `insert`, `update`) and Class B operations (e.g., `get`, `list`).
+
+**Example Pricing Scenario**: Storing 100 GB of Standard data in `us-central1` and performing 10,000 Class A operations and 100,000 Class B operations per month would incur costs for storage and operations. For detailed and up-to-date pricing, always refer to the official [Cloud Storage pricing page](https://cloud.google.com/storage/pricing) [3].
+
+### 4. Google Cloud Vertex AI: The Unified ML Platform
+
+**Role**: Vertex AI remains Google Cloud's unified machine learning platform. For our architecture, it will be primarily used for **batch predictions** with the Gemini 2.5 Pro model. We'll leverage Vertex AI's batch processing capabilities to efficiently process large volumes of session data stored in GCS, with Cloud Functions orchestrating the batch job submission and monitoring.
+
+**Key Features for this Architecture**:
+*   **Managed Batch Prediction**: Submit large datasets for prediction and receive results asynchronously, without managing underlying infrastructure.
+*   **Model Support**: Supports various models, including Google's foundational models like Gemini.
+*   **Scalability**: Automatically scales compute resources for batch jobs.
+*   **Integration with GCS**: Directly consumes input from and writes output to Cloud Storage.
+
+**Pricing Model**: Vertex AI pricing for generative AI models like Gemini is typically based on the volume of input and output tokens processed. Batch prediction pricing for custom models might involve compute costs (e.g., per hour for GPUs/CPUs). For Gemini 2.5 Pro, the pricing is generally per 1,000 characters (tokens) for input and output. There's a free tier for some models and usage [4].
+
+**Example Pricing Scenario**: Processing 10 million input characters and generating 5 million output characters with Gemini 2.5 Pro would incur costs based on these character counts. For detailed and up-to-date pricing, always refer to the official [Vertex AI pricing page](https://cloud.google.com/vertex-ai/pricing) [4].
+
+### 5. Google Cloud Firestore (Optional but Recommended): The NoSQL Document Database
+
+**Role**: Cloud Firestore is a highly scalable, flexible NoSQL document database. It's an excellent choice for storing metadata, such as collection run statuses, summary IDs, and potentially aggregated AI results. It offers real-time synchronization and offline support, which can be beneficial for dashboards or monitoring applications. Cloud Functions can easily interact with Firestore to read and write data.
+
+**Key Features for this Architecture**:
+*   **NoSQL Document Model**: Flexible schema allows for easy storage of varied data structures.
+*   **Real-time Synchronization**: Clients can receive live updates to data.
+*   **Scalability**: Scales automatically to handle large datasets and high traffic.
+*   **Managed Service**: No server management required.
+
+**Pricing Model**: Cloud Firestore pricing is based on database storage, read/write/delete operations, and network usage. There's a free tier that includes 1 GB storage, 50,000 reads, 20,000 writes, and 20,000 deletes per day [5]. Beyond the free tier, you pay for:
+*   **Document Storage**: Charged per GB-month (e.g., $0.18 per GB-month in `us-central1`).
+*   **Document Reads/Writes/Deletes**: Charged per 100,000 operations (e.g., $0.06 per 100,000 reads).
+*   **Network Egress**: Standard network pricing applies.
+
+**Example Pricing Scenario**: Storing 5 GB of data and performing 1 million reads, 500,000 writes, and 100,000 deletes per month would incur costs for storage and operations. For detailed and up-to-date pricing, always refer to the official [Cloud Firestore pricing page](https://cloud.google.com/firestore/pricing) [5].
+
+### 6. Google Cloud IAM: Identity and Access Management
+
+**Role**: IAM is fundamental for securing your GCP resources. It allows you to define who has what access to which resources. In our Cloud Functions architecture, each function will execute under your existing Service Account: `svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`. This service account will be granted only the necessary permissions (least privilege) to interact with other GCP services (e.g., a function needs permission to publish to Pub/Sub, read/write to GCS).
+
+**Key Features for this Architecture**:
+*   **Fine-grained Access Control**: Define permissions at the project, folder, or resource level.
+*   **Service Accounts**: Securely authenticate functions and other services.
+*   **Audit Logs**: Records administrative activities and data access events for security and compliance.
+
+**Pricing Model**: IAM itself is generally free. You pay for the underlying GCP services that IAM secures [6].
+
+### 7. Google Cloud Logging and Monitoring: Observability
+
+**Role**: Cloud Logging collects logs from all your GCP services, and Cloud Monitoring provides metrics, dashboards, and alerts. These services are crucial for observing the health, performance, and behavior of your distributed Cloud Functions. Each Cloud Function will automatically send its logs to Cloud Logging, and its metrics to Cloud Monitoring.
+
+**Key Features for this Architecture**:
+*   **Centralized Logging**: Aggregate logs from all functions in one place.
+*   **Metrics and Dashboards**: Visualize function performance and resource utilization.
+*   **Alerting**: Set up alerts for anomalies or critical events.
+*   **Trace**: Track requests across multiple functions.
+
+**Pricing Model**: Cloud Logging and Monitoring offer generous free tiers. Beyond that, pricing is based on the volume of logs ingested, metrics stored, and API calls. For detailed and up-to-date pricing, always refer to the official [Cloud Logging pricing page](https://cloud.google.com/logging/pricing) [7] and [Cloud Monitoring pricing page](https://cloud.google.com/monitoring/pricing) [8].
+
+---
+
+**References**:
+[1] Google Cloud Functions Pricing: [https://cloud.google.com/functions/pricing](https://cloud.google.com/functions/pricing)
+[2] Google Cloud Pub/Sub Pricing: [https://cloud.google.com/pubsub/pricing](https://cloud.google.com/pubsub/pricing)
+[3] Google Cloud Storage Pricing: [https://cloud.google.com/storage/pricing](https://cloud.google.com/storage/pricing)
+[4] Google Cloud Vertex AI Pricing: [https://cloud.google.com/vertex-ai/pricing](https://cloud.google.com/vertex-ai/pricing)
+[5] Google Cloud Firestore Pricing: [https://cloud.google.com/firestore/pricing](https://cloud.google.com/firestore/pricing)
+[6] Google Cloud IAM Documentation: [https://cloud.google.com/iam/docs](https://cloud.google.com/iam/docs)
+[7] Google Cloud Logging Pricing: [https://cloud.google.com/logging/pricing](https://cloud.google.com/logging/pricing)
+[8] Google Cloud Monitoring Pricing: [https://cloud.google.com/monitoring/pricing](https://cloud.google.com/monitoring/pricing)
+
+
+
+## Function Creation and Deployment Steps
+
+This section provides detailed, step-by-step instructions for creating and deploying each microservice as a Google Cloud Function. We will focus on manual deployment via the Google Cloud Console and `gcloud` CLI commands, aligning with the bare-bones implementation approach. Unlike Cloud Run, Cloud Functions do not require you to manage Dockerfiles; you simply provide your code and a `requirements.txt` file.
+
+Crucially, for all deployments, we will leverage your existing service account: `svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`. This means we will **not** be creating new service accounts for each function. Instead, we will ensure that your existing service account has all the necessary permissions for each function's operations.
+
+### 1. Session Data Scraper Function
+
+**Role**: This function will be responsible for initiating web scraping operations, using the `journalist` library, and publishing events when new session data is created. It will replace the scraping logic currently within `collection_orchestrator.py`.
+
+**Technology**: Python, Google Cloud Functions (2nd gen recommended), Google Cloud Pub/Sub, Google Cloud Storage.
+
+#### 1.1. Code Structure and Development
+
+First, you need to refactor the web scraping logic into a standalone Python function. This function will be triggered by messages on a Pub/Sub topic (e.g., `scraping-requests`), perform the scraping, and then upload the resulting `session_data_xyz.json` files to a Google Cloud Storage bucket. Once uploaded, it will publish a message to another Pub/Sub topic (e.g., `session-data-created`).
+
+Create a directory for your function (e.g., `scraper_function/`). Inside this directory, you will have your Python code file (e.g., `main.py`) and a `requirements.txt` file.
+
+**`scraper_function/main.py`**
+
+```python
+import os
+import json
+import base64
+import asyncio
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+
+from google.cloud import pubsub_v1, storage
+from journalist import Journalist
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format=\'%(asctime)s - %(levelname)s - %(message)s\')
+logger = logging.getLogger(__name__)
+
+# Initialize Google Cloud clients
+publisher = pubsub_v1.PublisherClient()
+storage_client = storage.Client()
+
+# Configuration from environment variables
+PROJECT_ID = os.getenv(\'GOOGLE_CLOUD_PROJECT\')
+SESSION_DATA_CREATED_TOPIC = os.getenv(\'SESSION_DATA_CREATED_TOPIC\', \'session-data-created\')
+GCS_BUCKET_NAME = os.getenv(\'GCS_BUCKET_NAME\', \'your-session-data-bucket\')
+
+async def _process_scraping_request(message_data: dict):
+    logger.info(f"Received scraping request: {message_data}")
+    urls = message_data.get("urls")
+    keywords = message_data.get("keywords")
+
+    if not urls or not keywords:
+        logger.error("Missing \'urls\' or \'keywords\' in the request.")
+        return
+
+    try:
+        # Initialize Journalist within the function scope or as a global if it\'s thread-safe
+        # For Cloud Functions, each invocation is typically a new instance, so re-initializing is fine.
+        journalist = Journalist()
+        # Perform scraping
+        source_sessions = await journalist.read(urls=urls, keywords=keywords)
+
+        # Process each session
+        for session in source_sessions:
+            source_domain = session.get("source_domain", "unknown_source")
+            session_id = session.get("session_metadata", {}).get("session_id", "no_session_id")
+            filename = f"session_data_{source_domain}_{session_id}.json"
+            local_path = Path("/tmp") / filename
+
+            # Save session data locally
+            with open(local_path, "w", encoding="utf-8") as f:
+                json.dump(session, f, indent=2, ensure_ascii=False)
+
+            # Upload to GCS
+            bucket = storage_client.bucket(GCS_BUCKET_NAME)
+            blob = bucket.blob(filename)
+            blob.upload_from_filename(str(local_path))
+            logger.info(f"Uploaded {filename} to GCS bucket {GCS_BUCKET_NAME}.")
+
+            # Publish success message
+            success_message = {
+                "status": "success",
+                "gcs_path": f"gs://{GCS_BUCKET_NAME}/{filename}",
+                "source_domain": source_domain,
+                "session_id": session_id
+            }
+            future = publisher.publish(
+                publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC),
+                json.dumps(success_message).encode("utf-8")
+            )
+            future.result()  # Wait for publish to complete
+            logger.info(f"Published success message for {filename}.")
+
+    except Exception as e:
+        logger.error(f"An error occurred during scraping: {e}", exc_info=True)
+        # Optionally, publish an error message to a dead-letter topic
+
+def scrape_and_store(event, context):
+    """Background Cloud Function to be triggered by Pub/Sub.
+    Args:
+        event (dict): The Pub/Sub message data.
+        context (google.cloud.functions.Context): The Cloud Functions event metadata.
+    """
+    if isinstance(event, dict) and "data" in event:
+        message_data = json.loads(base64.b64decode(event["data"]).decode("utf-8"))
+        asyncio.run(_process_scraping_request(message_data))
+    else:
+        logger.error("Invalid Pub/Sub message format.")
+
+```
+
+**`scraper_function/requirements.txt`**
+
+```
+google-cloud-pubsub
+google-cloud-storage
+journalist
+```
+
+#### 1.2. Deployment to Cloud Functions
+
+**Prerequisites**:
+*   Google Cloud SDK (`gcloud`) installed and configured.
+*   Enable the Cloud Functions, Cloud Build, and Pub/Sub APIs in your GCP project.
+
+**Steps**:
+
+1.  **Create the `scraper_function` directory and place `main.py` and `requirements.txt` inside it.**
+
+2.  **Deploy the Cloud Function**:
+    ```bash
+    gcloud functions deploy scrape-and-store \
+        --gen2 \
+        --runtime python39 \
+        --region us-central1 \
+        --source scraper_function/ \
+        --entry-point scrape_and_store \
+        --trigger-topic scraping-requests \
+        --set-env-vars GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,GCS_BUCKET_NAME=your-session-data-bucket,SESSION_DATA_CREATED_TOPIC=session-data-created \
+        --service-account=svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
+    ```
+    *   `--gen2`: Deploys a 2nd generation Cloud Function, which offers better performance and integration with Eventarc.
+    *   `--runtime python39`: Specifies the Python 3.9 runtime.
+    *   `--source scraper_function/`: Points to the directory containing your function code.
+    *   `--entry-point scrape_and-store`: Specifies the name of the Python function to execute.
+    *   `--trigger-topic scraping-requests`: Configures the function to be triggered by messages on the `scraping-requests` Pub/Sub topic.
+    *   `--service-account=svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`: **Crucially, this specifies your existing service account for the function to run under.**
+
+3.  **Grant necessary roles to `svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`**:
+    Your existing service account needs the following permissions to allow the `scrape-and-store` function to operate correctly:
+
+    *   **Cloud Storage Object Creator** (to write session data to your GCS bucket):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+            --role="roles/storage.objectCreator"
+        ```
+    *   **Pub/Sub Publisher** (to publish `session-data-created` events):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+            --role="roles/pubsub.publisher"
+        ```
+    *   **Cloud Functions Invoker** (for the Cloud Functions service itself to invoke your function. This role is typically granted to the Cloud Functions service agent, but ensuring your service account also has it for consistency is good practice, especially if you intend to invoke it directly via HTTP or other means later):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:service-gen-lang-client-0306766464@gcf-admin-robot.iam.gserviceaccount.com" \
+            --role="roles/cloudfunctions.invoker"
+        ```
+        *Note: The `service-gen-lang-client-0306766464@gcf-admin-robot.iam.gserviceaccount.com` is the Google-managed service account for Cloud Functions in your project. It's crucial for the Cloud Functions service to be able to invoke your deployed function. You can find your project number by running `gcloud projects describe gen-lang-client-0306766464 --format='value(projectNumber)'`.*
+
+Now, any message published to the `scraping-requests` topic will trigger your `scrape-and-store` Cloud Function, running under your specified service account.
+
+
+
+
+### 2. Batch Request Builder Function
+
+**Role**: This function listens for `session-data-created` events, reads the session data from GCS, constructs Vertex AI batch prediction request JSONL files, uploads them to GCS, and then publishes a `batch-processing-requests` event.
+
+**Technology**: Python, Google Cloud Functions, Google Cloud Pub/Sub, Google Cloud Storage, Google Cloud Vertex AI.
+
+#### 2.1. Code Structure and Development
+
+This function will be triggered by messages on the `session-data-created` Pub/Sub topic. Upon receiving a message, it will download the specified session data file from GCS, process it to create a batch request entry, and append it to a JSONL file. For simplicity in this bare-bones approach, we can assume a single batch request JSONL file is being built over time, or that a new one is created per set of session data. For a more robust solution, you might batch multiple `session-data-created` events into a single JSONL file before submitting a batch job.
+
+Create a directory for your function (e.g., `batch_builder_function/`). Inside this directory, you will have your Python code file (e.g., `main.py`) and a `requirements.txt` file.
+
+**`batch_builder_function/main.py`**
+
+```python
+import os
+import json
+import base64
+import asyncio
+import logging
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Dict, Any, List
+
+from google.cloud import pubsub_v1, storage
+from google.cloud import aiplatform # For Vertex AI types/clients if needed
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format=\'%(asctime)s - %(levelname)s - %(message)s\')
+logger = logging.getLogger(__name__)
+
+# Initialize Google Cloud clients
+publisher = pubsub_v1.PublisherClient()
+storage_client = storage.Client()
+
+# Configuration from environment variables
+PROJECT_ID = os.getenv(\'GOOGLE_CLOUD_PROJECT\')
+SESSION_DATA_CREATED_TOPIC = os.getenv(\'SESSION_DATA_CREATED_TOPIC\', \'session-data-created\')
+BATCH_PROCESSING_REQUESTS_TOPIC = os.getenv(\'BATCH_PROCESSING_REQUESTS_TOPIC\', \'batch-processing-requests\')
+GCS_BUCKET_NAME = os.getenv(\'GCS_BUCKET_NAME\', \'your-session-data-bucket\')
+BATCH_REQUESTS_BUCKET_PREFIX = os.getenv(\'BATCH_REQUESTS_BUCKET_PREFIX\', \'batch_requests/\')
+
+# Assuming PROMPT.md is available in the function deployment or a known GCS path
+# For simplicity, let\'s hardcode a basic prompt for now, or load from a file
+PROMPT_TEMPLATE = """
+You are processing news articles. Analyze the provided JSON data and summarize it.
+Return the structured JSON result as specified in the OUTPUT FORMAT.
+"""
+
+# This should ideally come from a shared module or be more robustly defined
+# For now, a simplified schema for demonstration
+VERTEX_AI_RESPONSE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "processing_summary": {"type": "object"},
+        "processed_articles": {"type": "array"}
+    }
+}
+
+async def _build_batch_request(message_data: dict):
+    logger.info(f"Received session data created event: {message_data}")
+    gcs_path = message_data.get("gcs_path")
+    source_domain = message_data.get("source_domain")
+    session_id = message_data.get("session_id")
+
+    if not gcs_path:
+        logger.error("Missing \'gcs_path\' in the message data.")
+        return
+
+    try:
+        # Download session data from GCS
+        bucket_name = gcs_path.split("//")[1].split("/")[0]
+        blob_name = "/".join(gcs_path.split("//")[1].split("/")[1:])
+        
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        session_data_content = blob.download_as_text(encoding="utf-8")
+        session_data = json.loads(session_data_content)
+        logger.info(f"Downloaded session data from {gcs_path}.")
+
+        # Create a unique batch request file for this session data
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        batch_jsonl_filename = f"batch_request_{source_domain}_{session_id}_{timestamp}.jsonl"
+        batch_jsonl_gcs_path = f"gs://{GCS_BUCKET_NAME}/{BATCH_REQUESTS_BUCKET_PREFIX}{batch_jsonl_filename}"
+
+        # Construct the batch request entry
+        request_entry = {
+            "request": {
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {"text": PROMPT_TEMPLATE},
+                            {
+                                "fileData": {
+                                    "fileUri": gcs_path,
+                                    "mimeType": "application/json" # Assuming the session data is JSON
+                                }
+                            }
+                        ]
+                    },
+                ],
+                "generationConfig": {
+                    "candidateCount": 1,
+                    "temperature": 0.1,
+                    "topP": 0.95,
+                    "maxOutputTokens": 65535,
+                    "responseMimeType": "application/json",
+                    "responseSchema": VERTEX_AI_RESPONSE_SCHEMA
+                }
+            }
+        }
+
+        # Upload the single batch request entry as a JSONL file to GCS
+        batch_request_content = json.dumps(request_entry, ensure_ascii=False) + \'\\n\'
+        batch_blob = bucket.blob(f"{BATCH_REQUESTS_BUCKET_PREFIX}{batch_jsonl_filename}")
+        batch_blob.upload_from_string(batch_request_content, content_type=\'application/x-ndjson\')
+        logger.info(f"Uploaded batch request JSONL to {batch_jsonl_gcs_path}.")
+
+        # Publish batch processing request event
+        batch_event_data = {
+            "batch_id": f"batch_{source_domain}_{session_id}_{timestamp}",
+            "input_gcs_uri": batch_jsonl_gcs_path,
+            "output_gcs_prefix": f"gs://{GCS_BUCKET_NAME}/batch_results/{source_domain}_{session_id}_{timestamp}/",
+            "model_name": "gemini-2.5-pro", # Or configurable
+            "source_domain": source_domain,
+            "session_id": session_id
+        }
+        future = publisher.publish(
+            publisher.topic_path(PROJECT_ID, BATCH_PROCESSING_REQUESTS_TOPIC),
+            json.dumps(batch_event_data).encode("utf-8")
+        )
+        future.result()
+        logger.info(f"Published batch processing request for {batch_jsonl_filename}.")
+
+    except Exception as e:
+        logger.error(f"Error processing session data event: {e}", exc_info=True)
+
+def build_batch_request(event, context):
+    """Background Cloud Function to be triggered by Pub/Sub.
+    Args:
+        event (dict): The Pub/Sub message data.
+        context (google.cloud.functions.Context): The Cloud Functions event metadata.
+    """
+    if isinstance(event, dict) and "data" in event:
+        message_data = json.loads(base64.b64decode(event["data"]).decode("utf-8"))
+        asyncio.run(_build_batch_request(message_data))
+    else:
+        logger.error("Invalid Pub/Sub message format.")
+
+```
+
+**`batch_builder_function/requirements.txt`**
+
+```
+google-cloud-pubsub
+google-cloud-storage
+google-cloud-aiplatform
+```
+
+#### 2.2. Deployment to Cloud Functions
+
+**Prerequisites**:
+*   Google Cloud SDK (`gcloud`) installed and configured.
+*   Enable the Cloud Functions, Cloud Build, Pub/Sub, Cloud Storage, and Vertex AI APIs in your GCP project.
+
+**Steps**:
+
+1.  **Create the `batch_builder_function` directory and place `main.py` and `requirements.txt` inside it.**
+
+2.  **Deploy the Cloud Function**:
+    ```bash
+    gcloud functions deploy build-batch-request \
+        --gen2 \
+        --runtime python39 \
+        --region us-central1 \
+        --source batch_builder_function/ \
+        --entry-point build_batch_request \
+        --trigger-topic session-data-created \
+        --set-env-vars GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,GCS_BUCKET_NAME=your-session-data-bucket,BATCH_PROCESSING_REQUESTS_TOPIC=batch-processing-requests \
+        --service-account=svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
+    ```
+    *   `--gen2`: Deploys a 2nd generation Cloud Function.
+    *   `--runtime python39`: Specifies the Python 3.9 runtime.
+    *   `--source batch_builder_function/`: Points to the directory containing your function code.
+    *   `--entry-point build_batch_request`: Specifies the name of the Python function to execute.
+    *   `--trigger-topic session-data-created`: Configures the function to be triggered by messages on the `session-data-created` Pub/Sub topic.
+    *   `--service-account=svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`: **Crucially, this specifies your existing service account for the function to run under.**
+
+3.  **Grant necessary roles to `svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`**:
+    Your existing service account needs the following permissions to allow the `build-batch-request` function to operate correctly:
+
+    *   **Cloud Storage Object Viewer** (to read session data from your GCS bucket):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+            --role="roles/storage.objectViewer"
+        ```
+    *   **Cloud Storage Object Creator** (to write batch request JSONL to your GCS bucket):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+            --role="roles/storage.objectCreator"
+        ```
+    *   **Pub/Sub Publisher** (to publish `batch-processing-requests` events):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+            --role="roles/pubsub.publisher"
+        ```
+    *   **Cloud Functions Invoker** (for the Cloud Functions service itself to invoke your function):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:service-gen-lang-client-0306766464@gcf-admin-robot.iam.gserviceaccount.com" \
+            --role="roles/cloudfunctions.invoker"
+        ```
+
+Now, any message published to the `session-data-created` topic will trigger your `build-batch-request` Cloud Function.
+
+
+
+
+### 3. AI Batch Processor Function
+
+**Role**: This function listens for `batch-processing-requests` events, initiates a Vertex AI batch prediction job using the specified input JSONL file from GCS, and publishes a `batch-processing-completed` event upon job completion.
+
+**Technology**: Python, Google Cloud Functions, Google Cloud Pub/Sub, Google Cloud Storage, Google Cloud Vertex AI.
+
+#### 3.1. Code Structure and Development
+
+This function will be triggered by messages on the `batch-processing-requests` Pub/Sub topic. Upon receiving a message, it will extract the GCS path to the batch request JSONL file and the desired output GCS prefix. It will then use the Vertex AI SDK to initiate a batch prediction job. Since batch jobs are asynchronous and can take time, this function will initiate the job and publish a `SUBMITTED` status, assuming a separate mechanism (e.g., another function triggered by Vertex AI notifications) will handle the `COMPLETED` status.
+
+Create a directory for your function (e.g., `ai_processor_function/`). Inside this directory, you will have your Python code file (e.g., `main.py`) and a `requirements.txt` file.
+
+**`ai_processor_function/main.py`**
+
+```python
+import os
+import json
+import base64
+import asyncio
+import logging
+from datetime import datetime, timezone
+
+from google.cloud import pubsub_v1, storage
+from google.cloud import aiplatform
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format=\'%(asctime)s - %(levelname)s - %(message)s\')
+logger = logging.getLogger(__name__)
+
+# Initialize Google Cloud clients
+publisher = pubsub_v1.PublisherClient()
+storage_client = storage.Client()
+
+# Configuration from environment variables
+PROJECT_ID = os.getenv(\'GOOGLE_CLOUD_PROJECT\')
+REGION = os.getenv(\'REGION\', \'us-central1\') # Vertex AI region
+BATCH_PROCESSING_REQUESTS_TOPIC = os.getenv(\'BATCH_PROCESSING_REQUESTS_TOPIC\', \'batch-processing-requests\')
+BATCH_PROCESSING_COMPLETED_TOPIC = os.getenv(\'BATCH_PROCESSING_COMPLETED_TOPIC\', \'batch-processing-completed\')
+
+# Initialize Vertex AI
+aiplatform.init(project=PROJECT_ID, location=REGION)
+
+async def _process_batch_request_event(message_data: dict):
+    logger.info(f"Received batch processing request event: {message_data}")
+    batch_id = message_data.get("batch_id")
+    input_gcs_uri = message_data.get("input_gcs_uri")
+    output_gcs_prefix = message_data.get("output_gcs_prefix")
+    model_name = message_data.get("model_name", "gemini-2.5-pro") # Default to Gemini
+    source_domain = message_data.get("source_domain")
+    session_id = message_data.get("session_id")
+
+    if not all([batch_id, input_gcs_uri, output_gcs_prefix, model_name]):
+        logger.error("Missing required fields in batch processing request.")
+        return
+
+    try:
+        logger.info(f"Submitting Vertex AI batch prediction job for batch_id: {batch_id}")
+        
+        job_display_name = f"batch-prediction-{batch_id}"
+
+        # The `model` parameter for `BatchPredictionJob.create` expects a model resource name.
+        # For foundation models, this is typically `publishers/google/models/{model_id}`.
+        model_resource_name = f"publishers/google/models/{model_name}"
+
+        batch_prediction_job = aiplatform.BatchPredictionJob.create(
+            display_name=job_display_name,
+            model=model_resource_name,
+            job_input_config=aiplatform.BatchPredictionJob.InputConfig(
+                gcs_source=aiplatform.GcsSource(uris=[input_gcs_uri]),
+                instances_format="jsonl", # Assuming input is JSONL
+            ),
+            job_output_config=aiplatform.BatchPredictionJob.OutputConfig(
+                gcs_destination=aiplatform.GcsDestination(output_uri_prefix=output_gcs_prefix),
+                predictions_format="jsonl", # Assuming output is JSONL
+            ),
+            location=REGION, # Ensure this matches your Vertex AI location
+            sync=False, # Do not wait for the job to complete
+        )
+
+        logger.info(f"Vertex AI batch prediction job {batch_prediction_job.name} submitted.")
+
+        # Publish job submission event
+        job_submitted_message = {
+            "batch_id": batch_id,
+            "vertex_ai_job_name": batch_prediction_job.name,
+            "input_gcs_uri": input_gcs_uri,
+            "output_gcs_prefix": output_gcs_prefix,
+            "status": "SUBMITTED",
+            "timestamp": datetime.now(timezone.utc).isoformat()
+        }
+        future = publisher.publish(
+            publisher.topic_path(PROJECT_ID, BATCH_PROCESSING_COMPLETED_TOPIC),
+            json.dumps(job_submitted_message).encode("utf-8")
+        )
+        future.result()
+        logger.info(f"Published job submission message for batch_id: {batch_id}.")
+
+    except Exception as e:
+        logger.error(f"Error submitting Vertex AI batch job: {e}", exc_info=True)
+
+def process_ai_batch_request(event, context):
+    """Background Cloud Function to be triggered by Pub/Sub.
+    Args:
+        event (dict): The Pub/Sub message data.
+        context (google.cloud.functions.Context): The Cloud Functions event metadata.
+    """
+    if isinstance(event, dict) and "data" in event:
+        message_data = json.loads(base64.b64decode(event["data"]).decode("utf-8"))
+        asyncio.run(_process_batch_request_event(message_data))
+    else:
+        logger.error("Invalid Pub/Sub message format.")
+
+```
+
+**`ai_processor_function/requirements.txt`**
+
+```
+google-cloud-pubsub
+google-cloud-storage
+google-cloud-aiplatform
+```
+
+#### 3.2. Deployment to Cloud Functions
+
+**Prerequisites**:
+*   Google Cloud SDK (`gcloud`) installed and configured.
+*   Enable the Cloud Functions, Cloud Build, Pub/Sub, Cloud Storage, and Vertex AI APIs in your GCP project.
+
+**Steps**:
+
+1.  **Create the `ai_processor_function` directory and place `main.py` and `requirements.txt` inside it.**
+
+2.  **Deploy the Cloud Function**:
+    ```bash
+    gcloud functions deploy process-ai-batch-request \
+        --gen2 \
+        --runtime python39 \
+        --region us-central1 \
+        --source ai_processor_function/ \
+        --entry-point process_ai_batch_request \
+        --trigger-topic batch-processing-requests \
+        --set-env-vars GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,REGION=us-central1,BATCH_PROCESSING_COMPLETED_TOPIC=batch-processing-completed \
+        --service-account=svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
+    ```
+    *   `--gen2`: Deploys a 2nd generation Cloud Function.
+    *   `--runtime python39`: Specifies the Python 3.9 runtime.
+    *   `--source ai_processor_function/`: Points to the directory containing your function code.
+    *   `--entry-point process_ai_batch_request`: Specifies the name of the Python function to execute.
+    *   `--trigger-topic batch-processing-requests`: Configures the function to be triggered by messages on the `batch-processing-requests` Pub/Sub topic.
+    *   `--service-account=svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`: **Crucially, this specifies your existing service account for the function to run under.**
+
+3.  **Grant necessary roles to `svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`**:
+    Your existing service account needs the following permissions to allow the `process-ai-batch-request` function to operate correctly:
+
+    *   **Pub/Sub Publisher** (to publish `batch-processing-completed` events):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+            --role="roles/pubsub.publisher"
+        ```
+    *   **Vertex AI User** (to submit batch prediction jobs):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+            --role="roles/aiplatform.user"
+        ```
+    *   **Service Account User** (to allow Vertex AI to use the service account for the batch job itself, which needs GCS read/write. This is typically the service account that runs the batch job, often the default Compute Engine service account or a custom one you specify in the job config. If your `svc-account-aisports` is also the one running the batch job, it will need these permissions):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+            --role="roles/iam.serviceAccountUser"
+        ```
+        **Important**: The service account that Vertex AI uses to run the batch job (which is often the default Compute Engine service account or a custom one you specify in the job config) will need permissions to read from your input GCS bucket and write to your output GCS bucket. Ensure that service account has `roles/storage.objectViewer` on the input bucket and `roles/storage.objectCreator` on the output bucket.
+
+    *   **Cloud Functions Invoker** (for the Cloud Functions service itself to invoke your function):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:service-gen-lang-client-0306766464@gcf-admin-robot.iam.gserviceaccount.com" \
+            --role="roles/cloudfunctions.invoker"
+        ```
+
+Now, any message published to the `batch-processing-requests` topic will trigger your `process-ai-batch-request` Cloud Function.
+
+
+
+
+### 4. Result Processor Function
+
+**Role**: This function listens for `batch-processing-completed` events, retrieves the batch prediction results from GCS, processes them (e.g., stores in Firestore, triggers further actions), and potentially publishes new events (e.g., `summary-available`).
+
+**Technology**: Python, Google Cloud Functions, Google Cloud Pub/Sub, Google Cloud Storage, Google Cloud Firestore (optional).
+
+#### 4.1. Code Structure and Development
+
+This function will be triggered by messages on the `batch-processing-completed` Pub/Sub topic. Upon receiving a message, it will extract the GCS path to the batch prediction results. It will then download and process these results. For instance, it could parse the JSONL output, store the processed summaries in Cloud Firestore, and then notify other systems or users that summaries are available.
+
+Create a directory for your function (e.g., `result_processor_function/`). Inside this directory, you will have your Python code file (e.g., `main.py`) and a `requirements.txt` file.
+
+**`result_processor_function/main.py`**
+
+```python
+import os
+import json
+import base64
+import asyncio
+import logging
+from datetime import datetime, timezone
+
+from google.cloud import pubsub_v1, storage, firestore
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format=\'%(asctime)s - %(levelname)s - %(message)s\')
+logger = logging.getLogger(__name__)
+
+# Initialize Google Cloud clients
+publisher = pubsub_v1.PublisherClient()
+storage_client = storage.Client()
+firestore_client = firestore.Client() # Initialize Firestore client
+
+# Configuration from environment variables
+PROJECT_ID = os.getenv(\'GOOGLE_CLOUD_PROJECT\')
+BATCH_PROCESSING_COMPLETED_TOPIC = os.getenv(\'BATCH_PROCESSING_COMPLETED_TOPIC\', \'batch-processing-completed\')
+SUMMARY_AVAILABLE_TOPIC = os.getenv(\'SUMMARY_AVAILABLE_TOPIC\', \'summary-available\')
+
+async def _process_batch_completed_event(message_data: dict):
+    logger.info(f"Received batch processing completed event: {message_data}")
+    batch_id = message_data.get("batch_id")
+    output_gcs_prefix = message_data.get("output_gcs_prefix")
+    vertex_ai_job_name = message_data.get("vertex_ai_job_name")
+    status = message_data.get("status")
+    source_domain = message_data.get("source_domain")
+    session_id = message_data.get("session_id")
+
+    if status != "SUBMITTED": # In a real system, you\\'d check for a \'COMPLETED\' or \'SUCCEEDED\' status from Vertex AI notifications.
+        logger.warning(f"Batch job {batch_id} not in completed state. Current status: {status}")
+        return
+
+    try:
+        logger.info(f"Processing results for batch_id: {batch_id} from {output_gcs_prefix}")
+
+        # List blobs in the output GCS prefix
+        # Vertex AI batch prediction output structure: output_uri_prefix/prediction.results-XXXXX-of-YYYYY
+        # We need to find the prediction results JSONL files
+        bucket_name = output_gcs_prefix.split("//")[1].split("/")[0]
+        prefix_path = "/".join(output_gcs_prefix.split("//")[1].split("/")[1:])
+        
+        bucket = storage_client.bucket(bucket_name)
+        blobs = bucket.list_blobs(prefix=prefix_path)
+
+        processed_count = 0
+        for blob in blobs:
+            if blob.name.endswith(".jsonl") and "prediction.results" in blob.name:
+                logger.info(f"Found result file: {blob.name}")
+                results_content = blob.download_as_text(encoding="utf-8")
+                
+                for line in results_content.splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        result_entry = json.loads(line)
+                        # Process each result entry
+                        # Example: Store in Firestore
+                        
+                        # Extract relevant data from the prediction result
+                        # The structure of `result_entry` depends on your model\\\'s output
+                        # Assuming `result_entry["prediction"]` contains the summarized data
+                        prediction_data = result_entry.get("prediction", {})
+                        
+                        # Create a document in Firestore
+                        # You might want a more robust ID generation or check for existing docs
+                        doc_id = f"{source_domain}_{session_id}_{processed_count}"
+                        doc_ref = firestore_client.collection("summaries").document(doc_id)
+                        
+                        summary_data = {
+                            "batch_id": batch_id,
+                            "source_domain": source_domain,
+                            "session_id": session_id,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                            "summary_content": prediction_data, # Store the actual summary
+                            "input_gcs_uri": result_entry.get("instance", {}).get("input_gcs_uri"), # Original input if available
+                            "output_gcs_path": f"gs://{bucket_name}/{blob.name}"
+                        }
+                        doc_ref.set(summary_data)
+                        logger.info(f"Stored summary for {doc_id} in Firestore.")
+                        processed_count += 1
+                        
+                        # Publish summary available event
+                        summary_event_data = {
+                            "summary_id": doc_id,
+                            "batch_id": batch_id,
+                            "source_domain": source_domain,
+                            "session_id": session_id,
+                            "firestore_path": f"summaries/{doc_id}"
+                        }
+                        future = publisher.publish(
+                            publisher.topic_path(PROJECT_ID, SUMMARY_AVAILABLE_TOPIC),
+                            json.dumps(summary_event_data).encode("utf-8")
+                        )
+                        future.result()
+                        logger.info(f"Published summary available message for {doc_id}.")
+
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Error decoding JSONL line: {line}. Error: {e}")
+                    except Exception as e:
+                        logger.error(f"Error processing result entry: {e}", exc_info=True)
+
+        logger.info(f"Finished processing {processed_count} results for batch_id: {batch_id}.")
+
+    except Exception as e:
+        logger.error(f"Error processing batch completed event: {e}", exc_info=True)
+
+def process_batch_results(event, context):
+    """Background Cloud Function to be triggered by Pub/Sub.
+    Args:
+        event (dict): The Pub/Sub message data.
+        context (google.cloud.functions.Context): The Cloud Functions event metadata.
+    """
+    if isinstance(event, dict) and "data" in event:
+        message_data = json.loads(base64.b64decode(event["data"]).decode("utf-8"))
+        asyncio.run(_process_batch_completed_event(message_data))
+    else:
+        logger.error("Invalid Pub/Sub message format.")
+
+```
+
+**`result_processor_function/requirements.txt`**
+
+```
+google-cloud-pubsub
+google-cloud-storage
+google-cloud-firestore
+```
+
+#### 4.2. Deployment to Cloud Functions
+
+**Prerequisites**:
+*   Google Cloud SDK (`gcloud`) installed and configured.
+*   Enable the Cloud Functions, Cloud Build, Pub/Sub, Cloud Storage, and Cloud Firestore APIs in your GCP project.
+
+**Steps**:
+
+1.  **Create the `result_processor_function` directory and place `main.py` and `requirements.txt` inside it.**
+
+2.  **Deploy the Cloud Function**:
+    ```bash
+    gcloud functions deploy process-batch-results \
+        --gen2 \
+        --runtime python39 \
+        --region us-central1 \
+        --source result_processor_function/ \
+        --entry-point process_batch_results \
+        --trigger-topic batch-processing-completed \
+        --set-env-vars GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,SUMMARY_AVAILABLE_TOPIC=summary-available \
+        --service-account=svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
+    ```
+    *   `--gen2`: Deploys a 2nd generation Cloud Function.
+    *   `--runtime python39`: Specifies the Python 3.9 runtime.
+    *   `--source result_processor_function/`: Points to the directory containing your function code.
+    *   `--entry-point process_batch_results`: Specifies the name of the Python function to execute.
+    *   `--trigger-topic batch-processing-completed`: Configures the function to be triggered by messages on the `batch-processing-completed` Pub/Sub topic.
+    *   `--service-account=svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`: **Crucially, this specifies your existing service account for the function to run under.**
+
+3.  **Grant necessary roles to `svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`**:
+    Your existing service account needs the following permissions to allow the `process-batch-results` function to operate correctly:
+
+    *   **Cloud Storage Object Viewer** (to read batch results from your GCS bucket):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+            --role="roles/storage.objectViewer"
+        ```
+    *   **Cloud Datastore User** (for Firestore read/write):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+            --role="roles/datastore.user"
+        ```
+    *   **Pub/Sub Publisher** (to publish `summary-available` events):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+            --role="roles/pubsub.publisher"
+        ```
+    *   **Cloud Functions Invoker** (for the Cloud Functions service itself to invoke your function):
+        ```bash
+        gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+            --member="serviceAccount:service-gen-lang-client-0306766464@gcf-admin-robot.iam.gserviceaccount.com" \
+            --role="roles/cloudfunctions.invoker"
+        ```
+
+Now, any message published to the `batch-processing-completed` topic will trigger your `process-batch-results` Cloud Function.
+
+
+
+
+## Common Setup Steps
+
+Before deploying any of the Cloud Functions, there are several foundational steps that need to be completed within your Google Cloud Project. These steps ensure that your environment is properly configured, necessary APIs are enabled, and core resources like Cloud Storage buckets are in place. This section has been refactored to specifically leverage your existing service account (`svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`) for all operations.
+
+### 1. Google Cloud Project Setup
+
+Your existing service account is associated with the project ID `gen-lang-client-0306766464`. Ensure that your `gcloud` CLI is configured to use this project:
+
+```bash
+gcloud config set project gen-lang-client-0306766464
+```
+
+### 2. Enable Required Google Cloud APIs
+
+Each service relies on specific Google Cloud APIs. You need to enable these APIs in your project. You can do this via the Cloud Console or using the `gcloud` CLI.
+
+**Required APIs**:
+*   **Cloud Functions API**: `cloudfunctions.googleapis.com`
+*   **Cloud Build API**: `cloudbuild.googleapis.com` (used by Cloud Functions for deployment)
+*   **Cloud Pub/Sub API**: `pubsub.googleapis.com`
+*   **Cloud Storage API**: `storage.googleapis.com`
+*   **Vertex AI API**: `aiplatform.googleapis.com`
+*   **Cloud Firestore API**: `firestore.googleapis.com` (if using Firestore)
+
+**Steps to enable via `gcloud` CLI**:
+```bash
+gcloud services enable cloudfunctions.googleapis.com \
+    cloudbuild.googleapis.com \
+    pubsub.googleapis.com \
+    storage.googleapis.com \
+    aiplatform.googleapis.com \
+    firestore.googleapis.com
+```
+
+### 3. Create Main Cloud Storage Bucket
+
+You will need a central Cloud Storage bucket to store session data, batch request files, and AI prediction results. It is recommended to create a single bucket and use prefixes (folders) to organize the data.
+
+**Steps to create via `gcloud` CLI**:
+```bash
+gcloud storage buckets create gs://your-session-data-bucket \
+    --project=gen-lang-client-0306766464 \
+    --location=us-central1 \
+    --uniform-bucket-level-access
+```
+Replace `your-session-data-bucket` with a globally unique name for your bucket. Choose a location that is geographically close to your functions (e.g., `us-central1`). `uniform-bucket-level-access` is recommended for simpler IAM management.
+
+### 4. Create Pub/Sub Topics
+
+While each function's deployment section includes topic creation, it's good practice to list all required topics here for a complete overview of the messaging backbone.
+
+**Required Topics**:
+*   `scraping-requests`: For initiating scraping jobs.
+*   `session-data-created`: For notifying when session data is available.
+*   `batch-processing-requests`: For initiating Vertex AI batch jobs.
+*   `batch-processing-completed`: For notifying when Vertex AI batch jobs are done.
+*   `summary-available`: For notifying when AI summaries are processed and available.
+
+**Steps to create via `gcloud` CLI**:
+```bash
+gcloud pubsub topics create scraping-requests --project=gen-lang-client-0306766464
+gcloud pubsub topics create session-data-created --project=gen-lang-client-0306766464
+gcloud pubsub topics create batch-processing-requests --project=gen-lang-client-0306766464
+gcloud pubsub topics create batch-processing-completed --project=gen-lang-client-0306766464
+gcloud pubsub topics create summary-available --project=gen-lang-client-0306766464
+```
+
+### 5. Grant Permissions to Your Existing Service Account
+
+Instead of creating new service accounts for each function, we will grant the necessary roles to your existing service account: `svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`. This ensures that all your Cloud Functions, when deployed with this service account, have the required permissions to interact with other GCP services. The specific roles needed for each function are detailed in their respective deployment sections. Below is a consolidated list of all roles your service account will need across all functions:
+
+*   **Cloud Storage Object Viewer**: To read session data and batch results from GCS.
+    ```bash
+    gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+        --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+        --role="roles/storage.objectViewer"
+    ```
+*   **Cloud Storage Object Creator**: To write session data, batch requests, and batch results to GCS.
+    ```bash
+    gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+        --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+        --role="roles/storage.objectCreator"
+    ```
+*   **Pub/Sub Publisher**: To publish messages to various Pub/Sub topics.
+    ```bash
+    gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+        --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+        --role="roles/pubsub.publisher"
+    ```
+*   **Vertex AI User**: To submit Vertex AI batch prediction jobs.
+    ```bash
+    gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+        --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+        --role="roles/aiplatform.user"
+    ```
+*   **Cloud Datastore User**: To read from and write to Cloud Firestore (if you choose to use Firestore).
+    ```bash
+    gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+        --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
+        --role="roles/datastore.user"
+    ```
+*   **Cloud Functions Invoker**: This role is typically granted to the Cloud Functions service agent (e.g., `service-your-gcp-project-number@gcf-admin-robot.iam.gserviceaccount.com`) to allow the Cloud Functions service to invoke your deployed function. While your service account won't directly invoke the function in this Pub/Sub triggered scenario, it's good practice to ensure the Cloud Functions service agent has this role. You can find your project number by running `gcloud projects describe gen-lang-client-0306766464 --format='value(projectNumber)'`.
+    ```bash
+    gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
+        --member="serviceAccount:service-gen-lang-client-0306766464@gcf-admin-robot.iam.gserviceaccount.com" \
+        --role="roles/cloudfunctions.invoker"
+    ```
+
+By completing these common setup steps and granting the consolidated permissions to your existing service account, you establish a robust and secure foundation for your event-driven microservices architecture using Google Cloud Functions, fully leveraging your current authentication setup.
+
+
+
+
+## Conclusion
+
+This refactored guide has provided a detailed implementation roadmap for transitioning your web scraping and AI batch processing system to an Event-Driven Microservices Architecture on Google Cloud Platform, specifically leveraging Google Cloud Functions for a truly serverless, function-based approach. Crucially, this version integrates your existing service account (`svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`) and Application Default Credentials (ADC) for all authentication and authorization, streamlining your setup and leveraging your current cloud security practices.
+
+By utilizing managed services like Cloud Functions, Pub/Sub, Cloud Storage, and Vertex AI, you can achieve a highly scalable, resilient, and cost-effective solution that significantly improves upon a monolithic Python backend, all without the need for Dockerfile management. The use of your existing service account simplifies IAM management by centralizing permissions and access control for your microservices.
+
+The core principle of this architecture is decoupling, where each Cloud Function is responsible for a specific task and communicates asynchronously through Pub/Sub events. This design inherently promotes independent development, deployment, and scaling of components, leading to greater agility and fault tolerance. Cloud Functions allow you to focus solely on your business logic, as Google handles all the underlying infrastructure, including servers, operating systems, and runtime environments. Functions automatically scale based on demand, even down to zero invocations when idle, optimizing operational costs.
+
+While this guide has focused on manual deployment via `gcloud` CLI commands and the Google Cloud Console, the architecture is inherently compatible with future automation efforts. As your system matures, you can introduce CI/CD pipelines (e.g., using Cloud Build, GitHub Actions) to automate function deployments, further streamlining your development workflow and reducing manual errors.
+
+Furthermore, the modular nature of this event-driven system makes it highly extensible. Integrating new business cases, such as video translation using Google Cloud services, becomes a matter of adding new Cloud Functions that subscribe to relevant events or publish new ones, without requiring significant changes to existing components. This adaptability ensures that your investment in this architecture will continue to yield returns as your business needs evolve.
+
+By following the steps outlined in this document, you will establish a robust, cloud-native, and fully serverless foundation for your content processing pipeline, moving away from a complicated monolithic codebase towards a distributed, efficient, and future-proof solution on Google Cloud, fully integrated with your existing service account and authentication mechanisms.
+
+
