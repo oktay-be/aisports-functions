@@ -3,9 +3,9 @@
 # pip-compile requirements.in
 
 # Core Cloud Functions dependencies
-google-cloud-pubsub>=2.31.0
-google-cloud-storage>=3.2.0
-google-cloud-aiplatform>=1.102.0
+google-cloud-pubsub>=2.18.0
+google-cloud-storage>=2.10.0
+google-cloud-aiplatform>=1.38.0
 
 # Web scraping and content processing
 journ4list==0.3.0  # For fetching and processing news articles

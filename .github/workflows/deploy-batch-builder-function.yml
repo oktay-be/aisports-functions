@@ -1,11 +1,11 @@
-name: Deploy Scraper Function
+name: Deploy Batch Builder Function
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'scraper_function/**'
+      - 'batch_builder_function/**'
       - 'shared_libs/**'
 
 jobs:
@@ -25,11 +25,11 @@ jobs:
     - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v2
       with:
-        name: scrape-and-store
+        name: build-batch-request
         runtime: python39
-        entry_point: scrape_and_store
-        source_dir: scraper_function
-        trigger_topic: scraping-requests
+        entry_point: build_batch_request
+        source_dir: batch_builder_function
+        trigger_topic: session-data-created
         region: us-central1
         timeout: 540
         memory: 512MB
@@ -37,8 +37,8 @@ jobs:
         env_vars: |
           GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,
           GCS_BUCKET_NAME=aisports-news-data,
-          SESSION_DATA_CREATED_TOPIC=session-data-created,
+          BATCH_PROCESSING_REQUESTS_TOPIC=batch-processing-requests,
           NEWS_DATA_ROOT_PREFIX=news_data/,
-          ARTICLES_SUBFOLDER=articles/
+          BATCH_PROCESSING_SUBFOLDER=batch_processing/
         service_account: svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
         gen2: true

@@ -1,11 +1,11 @@
-name: Deploy Scraper Function
+name: Deploy AI Processor Function
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'scraper_function/**'
+      - 'ai_processor_function/**'
       - 'shared_libs/**'
 
 jobs:
@@ -25,20 +25,19 @@ jobs:
     - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v2
       with:
-        name: scrape-and-store
+        name: process-ai-batch-request
         runtime: python39
-        entry_point: scrape_and_store
-        source_dir: scraper_function
-        trigger_topic: scraping-requests
+        entry_point: process_ai_batch_request
+        source_dir: ai_processor_function
+        trigger_topic: batch-processing-requests
         region: us-central1
         timeout: 540
-        memory: 512MB
-        max_instances: 10
+        memory: 1GB
+        max_instances: 5
         env_vars: |
           GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,
-          GCS_BUCKET_NAME=aisports-news-data,
-          SESSION_DATA_CREATED_TOPIC=session-data-created,
-          NEWS_DATA_ROOT_PREFIX=news_data/,
-          ARTICLES_SUBFOLDER=articles/
+          REGION=us-central1,
+          BATCH_PROCESSING_COMPLETED_TOPIC=batch-processing-completed,
+          GCS_BUCKET_NAME=aisports-news-data
         service_account: svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
         gen2: true

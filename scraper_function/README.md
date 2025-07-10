@@ -15,7 +15,6 @@ The scraper function is responsible for:
 - `main.py` - Main function code with scraping logic
 - `requirements.txt` - Python dependencies
 - `trigger_test.py` - Test script to trigger the function locally
-- `deploy.sh` / `deploy.bat` - Deployment scripts for Linux/Windows
 - `README.md` - This file
 
 ## Configuration
@@ -90,7 +89,18 @@ This will publish test messages to the `scraping-requests` topic and trigger the
 
 ## Deployment
 
-### Prerequisites
+### Automated Deployment (Recommended)
+
+The function is automatically deployed via GitHub Actions when changes are pushed to the `main` branch. The workflow file is located at `.github/workflows/deploy-scraper-function.yml`.
+
+**Required GitHub Secrets:**
+- `GOOGLE_APPLICATION_CREDENTIALS_BASE64` - Base64 encoded service account key
+
+The deployment workflow is triggered when:
+- Files in `scraper_function/` are modified
+- Files in `shared_libs/` are modified (when created)
+
+### Prerequisites for Manual Deployment
 
 1. Ensure you have the Google Cloud CLI installed and authenticated
 2. Set up the required Pub/Sub topics:
@@ -99,20 +109,9 @@ This will publish test messages to the `scraping-requests` topic and trigger the
 3. Create the GCS bucket: `aisports-news-data`
 4. Ensure the service account has the necessary permissions
 
-### Deploy
+### Manual Deployment (For Testing)
 
-**Linux/Mac:**
-```bash
-chmod +x deploy.sh
-./deploy.sh
-```
-
-**Windows:**
-```cmd
-deploy.bat
-```
-
-### Manual Deployment
+If you need to deploy manually for testing purposes:
 
 ```bash
 gcloud functions deploy scrape-and-store \
@@ -152,6 +151,3 @@ After the scraper function is deployed and tested, proceed to implement:
 1. **Batch Builder Function** - Aggregates session data for batch processing
 2. **AI Processor Function** - Handles batch AI processing
 3. **Result Processor Function** - Processes AI results and stores final outputs
-
-
-

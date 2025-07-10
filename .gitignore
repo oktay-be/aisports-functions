@@ -66,4 +66,6 @@ archive/
 example_project
 tmp*
 gen-lang-client*
-legacy_monolithic_code/
+
+# Legacy monolithic code
+legacy_monolithic_code/**

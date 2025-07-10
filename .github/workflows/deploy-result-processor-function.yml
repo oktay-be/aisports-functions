@@ -1,11 +1,11 @@
-name: Deploy Scraper Function
+name: Deploy Result Processor Function
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'scraper_function/**'
+      - 'result_processor_function/**'
       - 'shared_libs/**'
 
 jobs:
@@ -20,25 +20,23 @@ jobs:
       uses: google-github-actions/setup-gcloud@v2
       with:
         project_id: gen-lang-client-0306766464
-        service_account_key: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_BASE64 }}
-
-    - name: Deploy Cloud Function
+        service_account_key: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_BASE64 }}    - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v2
       with:
-        name: scrape-and-store
+        name: process-batch-results
         runtime: python39
-        entry_point: scrape_and_store
-        source_dir: scraper_function
-        trigger_topic: scraping-requests
+        entry_point: process_batch_results
+        source_dir: result_processor_function
+        trigger_topic: batch-processing-completed
         region: us-central1
         timeout: 540
         memory: 512MB
         max_instances: 10
         env_vars: |
           GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,
+          SUMMARY_AVAILABLE_TOPIC=summary-available,
           GCS_BUCKET_NAME=aisports-news-data,
-          SESSION_DATA_CREATED_TOPIC=session-data-created,
           NEWS_DATA_ROOT_PREFIX=news_data/,
-          ARTICLES_SUBFOLDER=articles/
+          SUMMARIES_SUBFOLDER=summaries/
         service_account: svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
         gen2: true

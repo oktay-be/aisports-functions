@@ -1,93 +1,144 @@
-# AISports Cloud Functions
+# AI Sports Functions - Event-Driven Microservices Architecture
 
-This repository contains the event-driven microservices architecture for AISports using Google Cloud Functions.
+This project implements an event-driven microservices architecture using Google Cloud Functions for sports news scraping and AI-powered content processing.
 
-## Overview
+## Architecture Overview
 
-This project implements a distributed system for processing sports news data using Google Cloud Functions, Pub/Sub, and Cloud Storage. The system is designed to scrape news content, process it with AI, and store results in a scalable manner.
+The system consists of multiple Cloud Functions that communicate through Google Cloud Pub/Sub topics:
 
-## Architecture
+1. **Scraper Function** (`scraper_function/`) - Scrapes news content and stores it in GCS
+2. **Batch Builder Function** (`batch_builder_function/`) - Prepares batches for AI processing  
+3. **AI Processor Function** (`ai_processor_function/`) - Processes content using Vertex AI
+4. **Result Processor Function** (`result_processor_function/`) - Processes and stores AI results
 
-The system consists of four main Cloud Functions:
+## Storage Structure
 
-1. **Scraper Function** - Scrapes news content from various sources
-2. **Batch Builder Function** - Aggregates session data for batch processing
-3. **AI Processor Function** - Processes data using Vertex AI
-4. **Result Processor Function** - Handles processed results and storage
-
-## Project Structure
+All data is stored in Google Cloud Storage with the following structure:
 
 ```
-├── scraper_function/          # Session Data Scraper Function
-├── batch_builder_function/    # Batch Builder Function
-├── ai_processor_function/     # AI Processor Function
-├── result_processor_function/ # Result Processor Function
-├── Cloud Function Migration/  # Architecture documentation
-├── legacy_monolithic_code/    # Reference implementation
-└── README.md                  # This file
+news_data/
+├── sources/
+│   ├── bbc/
+│   │   ├── 2025-07/
+│   │   │   ├── articles/     # Raw session data from scraping
+│   │   │   ├── summaries/    # AI-generated summaries
+│   │   │   └── metadata/     # Processing logs and manifests
+│   └── ...
+├── batch_processing/         # Vertex AI batch processing data
+└── processing_runs/          # Processing run metadata
 ```
 
-## Setup
+## Local Development Setup
 
 ### Prerequisites
 
-- Python 3.12 installed
-- Google Cloud CLI installed and authenticated
-- Access to Google Cloud project: `gen-lang-client-0306766464`
+- Python 3.12
+- Google Cloud SDK (gcloud CLI)
+- Access to the `gen-lang-client-0306766464` Google Cloud project
 
 ### Environment Setup
 
 1. Create a virtual environment using Python 3.12:
 
-```cmd
-py -3.12 -m venv .venv
-.venv\Scripts\activate
-```
+   ```cmd
+   py -3.12 -m venv .venv
+   .venv\Scripts\activate
+   ```
 
 2. Install dependencies:
 
-```cmd
-# Step 1: Install pip-tools (recommended)
-python -m pip install pip-tools==7.3.0
-pip-compile requirements.in --output-file requirements.txt
+   ```cmd
+   # Install pip-tools for dependency management
+   python -m pip install pip-tools==7.3.0
+   
+   # Compile requirements from requirements.in
+   pip-compile requirements.in --output-file requirements.txt
+   
+   # Install all dependencies
+   python -m pip install -r requirements.txt
+   ```
 
-# Step 2: Install dependencies
-python -m pip install -r requirements.txt
-```
+3. Set up Google Cloud authentication:
 
-## Development
+   ```cmd
+   gcloud auth login
+   gcloud config set project gen-lang-client-0306766464
+   gcloud auth application-default login
+   ```
 
-Each function is contained in its own directory with:
-- `main.py` - Function implementation
-- `requirements.txt` - Dependencies
-- `deploy.sh` / `deploy.bat` - Deployment scripts
-- `README.md` - Function-specific documentation
+### Environment Variables
+
+Each function requires specific environment variables. See individual function directories for details.
+
+Common variables:
+- `GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464`
+- `GCS_BUCKET_NAME=aisports-news-data`
+- `NEWS_DATA_ROOT_PREFIX=news_data/`
 
 ## Deployment
 
-Refer to individual function README files for specific deployment instructions.
+### Automated CI/CD
 
-## Architecture Documentation
+All functions are automatically deployed via GitHub Actions when changes are pushed to the `main` branch:
 
-Detailed architecture and implementation guides are available in the `Cloud Function Migration/` directory.
+- `.github/workflows/deploy-scraper-function.yml` - Deploys scraper function
+- `.github/workflows/deploy-batch-builder-function.yml` - Deploys batch builder function  
+- `.github/workflows/deploy-ai-processor-function.yml` - Deploys AI processor function
+- `.github/workflows/deploy-result-processor-function.yml` - Deploys result processor function
 
-## License
+### Required GitHub Secrets
 
-MIT
+- `GOOGLE_APPLICATION_CREDENTIALS_BASE64` - Base64 encoded service account key
 
-### Setup
+### Local Testing
 
-1. Ceate a virtual environment using Python 3.12:
+Each function directory contains test files and local testing utilities. For example:
 
-   py -3.12 -m venv .venv
-   .venv\Scripts\activate
+```cmd
+cd scraper_function
+python trigger_test.py
+```
 
-2. Install dependencies:
+## Project Structure
 
+```
+aisports-functions/
+├── .github/workflows/          # GitHub Actions CI/CD workflows
+├── scraper_function/           # Web scraping Cloud Function
+├── batch_builder_function/     # Batch preparation function (to be created)
+├── ai_processor_function/      # AI processing function (to be created)  
+├── result_processor_function/  # Result processing function (to be created)
+├── shared_libs/               # Shared libraries (to be created)
+├── legacy_monolithic_code/    # Original monolithic application (archived)
+├── Cloud Function Migration/  # Documentation and reference files
+├── requirements.in            # Project dependencies
+└── .gitignore                # Git ignore rules
+```
 
-# Step 1 Using pip-compile (recommended)
-python -m pip install pip-tools==7.3.0
-pip-compile requirements.in --output-file requirements.txt
+## Technology Stack
 
-# Step 2
-python -m pip install -r requirements.txt
+- **Cloud Functions**: Serverless compute platform
+- **Cloud Pub/Sub**: Asynchronous messaging
+- **Cloud Storage**: Data persistence
+- **Vertex AI**: AI/ML processing
+- **Python 3.9**: Runtime environment
+- **GitHub Actions**: CI/CD pipeline
+
+## Key Features
+
+- **Event-driven architecture**: Functions communicate via Pub/Sub topics
+- **GCS-only storage**: No dependency on Firestore or other databases
+- **Automated deployment**: GitHub Actions workflows for CI/CD
+- **Scalable design**: Independent scaling of each microservice
+- **Comprehensive logging**: Structured logging throughout the pipeline
+
+## Contributing
+
+1. Make changes in feature branches
+2. Test locally before pushing
+3. GitHub Actions will automatically deploy to production on merge to `main`
+4. Monitor Cloud Function logs for deployment status
+
+## Documentation
+
+See the `Cloud Function Migration/` directory for detailed architecture documentation and implementation guides.
