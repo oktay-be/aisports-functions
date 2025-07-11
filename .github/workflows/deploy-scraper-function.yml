@@ -20,7 +20,9 @@ jobs:
       uses: google-github-actions/setup-gcloud@v2
       with:
         project_id: gen-lang-client-0306766464
-        service_account_key: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_BASE64 }}    - name: Deploy Cloud Function
+        service_account_key: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_BASE64 }}
+
+    - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v2
       with:
         name: scrape-and-store
