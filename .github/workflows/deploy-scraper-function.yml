@@ -20,19 +20,19 @@ jobs:
       uses: google-github-actions/setup-gcloud@v2
       with:
         project_id: gen-lang-client-0306766464
-        service_account_key: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_BASE64 }}
-
-    - name: Deploy Cloud Function
+        service_account_key: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_BASE64 }}    - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v2
       with:
         name: scrape-and-store
+        project_id: gen-lang-client-0306766464
         runtime: python39
         entry_point: scrape_and_store
         source_dir: scraper_function
-        trigger_topic: scraping-requests
         region: us-central1
+        event_trigger_type: providers/cloud.pubsub/eventTypes/topic.publish
+        event_trigger_resource: projects/gen-lang-client-0306766464/topics/scraping-requests
         timeout: 540
-        memory: 512MB
+        memory_mb: 512
         max_instances: 10
         env_vars: |
           GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,
@@ -40,5 +40,4 @@ jobs:
           SESSION_DATA_CREATED_TOPIC=session-data-created,
           NEWS_DATA_ROOT_PREFIX=news_data/,
           ARTICLES_SUBFOLDER=articles/
-        service_account: svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
-        gen2: true
+        service_account_email: svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com

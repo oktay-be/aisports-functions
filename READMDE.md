@@ -82,9 +82,11 @@ Common variables:
 All functions are automatically deployed via GitHub Actions when changes are pushed to the `main` branch:
 
 - `.github/workflows/deploy-scraper-function.yml` - Deploys scraper function
-- `.github/workflows/deploy-batch-builder-function.yml` - Deploys batch builder function  
-- `.github/workflows/deploy-ai-processor-function.yml` - Deploys AI processor function
-- `.github/workflows/deploy-result-processor-function.yml` - Deploys result processor function
+
+Additional workflows will be created as functions are implemented:
+- `deploy-batch-builder-function.yml` (when batch_builder_function/ is created)
+- `deploy-ai-processor-function.yml` (when ai_processor_function/ is created)
+- `deploy-result-processor-function.yml` (when result_processor_function/ is created)
 
 ### Required GitHub Secrets
 
