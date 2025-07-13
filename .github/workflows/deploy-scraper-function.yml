@@ -9,6 +9,10 @@ on:
       - 'shared_libs/**'
   workflow_dispatch:
 
+permissions:
+  id-token: write # This is crucial for Workload Identity Federation
+  contents: read # Allow checkout action to read the repository
+  
 jobs:
   deploy:
     runs-on: ubuntu-latest
