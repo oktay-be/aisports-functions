@@ -27,10 +27,10 @@ jobs:
         workload_identity_provider: "projects/30106847072/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider"
         service_account: "svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com"
 
-    - name: Set up gcloud CLI
-      uses: google-github-actions/setup-gcloud@v2
-      with:
-        project_id: gen-lang-client-0306766464
+    # - name: Set up gcloud CLI
+    #   uses: google-github-actions/setup-gcloud@v2
+    #   with:
+    #     project_id: gen-lang-client-0306766464
         
     - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v3
