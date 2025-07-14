@@ -28,7 +28,7 @@ jobs:
         service_account: "svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com"
 
     - name: Deploy Cloud Function
-      uses: google-github-actions/deploy-cloud-functions@v2
+      uses: google-github-actions/deploy-cloud-functions@v3
       with:
         name: scrape-and-store
         project_id: gen-lang-client-0306766464
