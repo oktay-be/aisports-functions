@@ -20,7 +20,9 @@ The following APIs must be enabled in your Google Cloud project (`gen-lang-clien
    - Required for storing and retrieving data in Google Cloud Storage.
 6. **Vertex AI API** (`aiplatform.googleapis.com`)
    - Required for AI/ML workloads and batch processing.
-7. **Generative Language API** (`generativelanguage.googleapis.com`)
+7. **Eventarc API** (`eventarc.googleapis.com`)
+   - Required for event-driven Cloud Functions and advanced event routing.
+8. **Generative Language API** (`generativelanguage.googleapis.com`)
    - Required for advanced generative AI features (if used).
 
 ---
