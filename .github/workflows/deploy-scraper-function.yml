@@ -26,14 +26,14 @@ jobs:
       with:
         workload_identity_provider: "projects/30106847072/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider"
         service_account: "svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com"
-        
+
     - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v3
       with:
         name: scrape-and-store
         runtime: python312
         entry_point: scrape_and_store
-        source_dir: functions/scraper_function
+        source_dir: scraper_function
         event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
         event_trigger_resource: projects/gen-lang-client-0306766464/topics/scraping-requests
         region: us-central1
