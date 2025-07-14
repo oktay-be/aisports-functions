@@ -26,26 +26,21 @@ jobs:
       with:
         workload_identity_provider: "projects/30106847072/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider"
         service_account: "svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com"
-
+        
     - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v3
       with:
         name: scrape-and-store
-        project_id: gen-lang-client-0306766464
         runtime: python312
         entry_point: scrape_and_store
-        source_dir: scraper_function
-        region: us-central1
-        event_trigger_type: providers/cloud.pubsub/eventTypes/topic.publish
+        source_dir: functions/scraper_function
+        event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
         event_trigger_resource: projects/gen-lang-client-0306766464/topics/scraping-requests
-        timeout: 540
-        memory_mb: 512
-        max_instances: 10
+        region: us-central1
         env_vars: |
           GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,
-          GCS_BUCKET_NAME=aisports-news-data,
+          GCS_BUCKET_NAME=your-session-data-bucket,
           SESSION_DATA_CREATED_TOPIC=session-data-created,
           NEWS_DATA_ROOT_PREFIX=news_data/,
           ARTICLES_SUBFOLDER=articles/
-        service_account_email: svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
-        gen2: true
+        service_account: svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
