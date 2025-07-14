@@ -35,7 +35,7 @@ jobs:
         entry_point: scrape_and_store
         source_dir: scraper_function
         event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
-        event_trigger_resource: projects/gen-lang-client-0306766464/topics/scraping-requests
+        event_trigger_pubsub_topic: projects/gen-lang-client-0306766464/topics/scraping-requests
         region: us-central1
         env_vars: |
           GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,
