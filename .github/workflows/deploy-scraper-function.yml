@@ -37,7 +37,7 @@ jobs:
         event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
         event_trigger_pubsub_topic: projects/gen-lang-client-0306766464/topics/scraping-requests
         region: us-central1
-        env_vars: |
+        environment_variables: |
           GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,
           GCS_BUCKET_NAME=your-session-data-bucket,
           SESSION_DATA_CREATED_TOPIC=session-data-created,
