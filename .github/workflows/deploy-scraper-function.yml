@@ -48,3 +48,4 @@ jobs:
           NEWS_DATA_ROOT_PREFIX=news_data/,
           ARTICLES_SUBFOLDER=articles/
         service_account_email: svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
+        gen2: true
