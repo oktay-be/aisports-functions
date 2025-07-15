@@ -40,7 +40,7 @@ jobs:
         region: us-central1
         environment_variables: |
           GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,
-          GCS_BUCKET_NAME=multi-modal-ai-bucket,
+          GCS_BUCKET_NAME=aisports-scraping,
           SESSION_DATA_CREATED_TOPIC=session-data-created,
           NEWS_DATA_ROOT_PREFIX=news_data/,
           ARTICLES_SUBFOLDER=articles/
