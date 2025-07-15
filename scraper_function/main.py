@@ -34,11 +34,13 @@ async def _process_scraping_request(message_data: dict):
     Process a scraping request by extracting content from URLs with keywords.
     
     Args:
-        message_data (dict): Dictionary containing 'urls' and 'keywords'
+        message_data (dict): Dictionary containing 'urls', 'keywords', and optionally 'scrape_depth', 'persist'
     """
     logger.info(f"Received scraping request: {message_data}")
     urls = message_data.get("urls")
     keywords = message_data.get("keywords")
+    scrape_depth = message_data.get("scrape_depth", 1)  # Default to 2 if not provided
+    persist = message_data.get("persist", True)  # Default to True if not provided
 
     if not urls or not keywords:
         logger.error("Missing 'urls' or 'keywords' in the request.")
@@ -49,8 +51,9 @@ async def _process_scraping_request(message_data: dict):
         return
     
     try:
-        # Initialize Journalist with configuration similar to legacy code
-        journalist = Journalist(persist=True, scrape_depth=2)
+        # Initialize Journalist with configuration from message payload
+        logger.info(f"Initializing Journalist with persist={persist}, scrape_depth={scrape_depth}")
+        journalist = Journalist(persist=persist, scrape_depth=scrape_depth)
         
         # Perform scraping
         source_sessions = await journalist.read(urls=urls, keywords=keywords)
@@ -94,9 +97,7 @@ async def _process_scraping_request(message_data: dict):
             bucket = storage_client.bucket(GCS_BUCKET_NAME)
             blob = bucket.blob(gcs_object_path)
             blob.upload_from_filename(str(local_path))
-            logger.info(f"Uploaded {filename} to GCS path gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
-
-            # Publish success message
+            logger.info(f"Uploaded {filename} to GCS path gs://{GCS_BUCKET_NAME}/{gcs_object_path}")            # Publish success message
             success_message = {
                 "status": "success",
                 "gcs_path": f"gs://{GCS_BUCKET_NAME}/{gcs_object_path}",
@@ -105,6 +106,8 @@ async def _process_scraping_request(message_data: dict):
                 "date_path": current_date_path,
                 "articles_count": session.get("articles_count", 0),
                 "keywords": keywords,
+                "scrape_depth": scrape_depth,
+                "persist": persist,
                 "processed_at": datetime.now(timezone.utc).isoformat()
             }
             
