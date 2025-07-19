@@ -145,25 +145,35 @@ async def _process_scraping_request(message_data: dict):
             logger.info(f"  - Articles count: {articles_count}")
             
             # Construct GCS path based on new structure
-            current_date_path = datetime.now(timezone.utc).strftime("%Y-%m")
+            current_date_path = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             
-            # Example: news_data/sources/bbc/2025-07/articles/session_data_bbc_com_uk_001.json
+            # Example: news_data/sources/bbc/2025-07-19/articles/session_data_bbc_com_uk_001.json
             gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{source_domain}/{current_date_path}/{ARTICLES_SUBFOLDER}session_data_{source_domain}_{session_id}.json"
             
-            filename = f"session_data_{source_domain}_{session_id}.json"
-            local_path = Path("/tmp") / filename
+            # When persist=True, journalist saves the file. Get the path from the session metadata.
+            local_path_str = session.get("session_metadata", {}).get("file_path")
+            if not local_path_str:
+                logger.error(f"Could not find file_path in session metadata for session {session_id}")
+                continue  # Skip to the next session
 
-            # Save session data locally
-            logger.info(f"Saving session data to {local_path}")
-            with open(local_path, "w", encoding="utf-8") as f:
-                json.dump(session, f, indent=2, ensure_ascii=False)
+            local_path = Path(local_path_str)
+            if not local_path.exists():
+                logger.error(f"File provided by journalist does not exist: {local_path}")
+                continue # Skip to the next session
 
-            # Upload to GCS
-            logger.info(f"Uploading to GCS: gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
+            # Upload the file created by the journalist library to GCS
+            logger.info(f"Uploading file from {local_path} to GCS: gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
             bucket = storage_client.bucket(GCS_BUCKET_NAME)
             blob = bucket.blob(gcs_object_path)
             blob.upload_from_filename(str(local_path))
-            logger.info(f"Successfully uploaded {filename} to GCS")
+            logger.info(f"Successfully uploaded {local_path.name} to GCS")
+
+            # Clean up the local file after upload
+            try:
+                local_path.unlink()
+                logger.info(f"Cleaned up local file: {local_path}")
+            except OSError as e:
+                logger.error(f"Error removing local file {local_path}: {e}")
             
             # Publish success message
             success_message = {
@@ -183,7 +193,7 @@ async def _process_scraping_request(message_data: dict):
             topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
             future = publisher.publish(topic_path, json.dumps(success_message).encode("utf-8"))
             future.result()  # Wait for publish to complete
-            logger.info(f"Successfully published message for {filename}")
+            logger.info(f"Successfully published message for {local_path.name}")
 
         logger.info(f"=== SCRAPING PROCESS COMPLETED SUCCESSFULLY ===")
         logger.info(f"Total sessions processed: {len(source_sessions)}")
@@ -232,4 +242,3 @@ def scrape_and_store(event, context):
         logger.error("Invalid Pub/Sub message format")
     
     logger.info(f"=== CLOUD FUNCTION EXECUTION COMPLETED ===")
-

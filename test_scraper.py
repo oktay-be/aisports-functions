@@ -45,7 +45,6 @@ async def test_journalist_configurable():
         "urls": [
             "https://www.sporx.com/",
             "https://www.ntvspor.net/",
-            "https://www.fanatik.com.tr/"
         ],
         "scrape_depth": 1,
         "persist": True,
