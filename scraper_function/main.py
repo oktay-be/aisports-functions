@@ -3,6 +3,7 @@ import json
 import base64
 import asyncio
 import logging
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -14,9 +15,46 @@ except ImportError:
     JOURNALIST_AVAILABLE = False
     Journalist = None
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# Enhanced logging configuration to capture all logs including journalist library
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stdout,
+    force=True  # Force reconfiguration of root logger
+)
+
+# Configure root logger to capture all logs
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+
+# Ensure all loggers propagate to root logger
+logging.getLogger().handlers.clear()
+handler = logging.StreamHandler(sys.stdout)
+handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
+logging.getLogger().addHandler(handler)
+logging.getLogger().setLevel(logging.INFO)
+
+# Explicitly configure journalist library loggers if available
+if JOURNALIST_AVAILABLE:
+    # Set logging level for journalist and related libraries
+    journalist_loggers = [
+        'journalist',
+        'journalist.core',
+        'journalist.extractors',
+        'journalist.scrapers',
+        'journalist.filters',
+        'aiohttp',
+        'asyncio'
+    ]
+    
+    for logger_name in journalist_loggers:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.INFO)
+        logger.propagate = True  # Ensure propagation to root logger
+
+# Application logger
 logger = logging.getLogger(__name__)
+logger.info("Logging configuration initialized for cloud environment")
 
 # Initialize Google Cloud clients
 publisher = pubsub_v1.PublisherClient()
@@ -39,7 +77,7 @@ async def _process_scraping_request(message_data: dict):
     logger.info(f"Received scraping request: {message_data}")
     urls = message_data.get("urls")
     keywords = message_data.get("keywords")
-    scrape_depth = message_data.get("scrape_depth", 1)  # Default to 2 if not provided
+    scrape_depth = message_data.get("scrape_depth", 1)  # Default to 1 if not provided
     persist = message_data.get("persist", True)  # Default to True if not provided
 
     if not urls or not keywords:
@@ -53,17 +91,36 @@ async def _process_scraping_request(message_data: dict):
     try:
         # Initialize Journalist with configuration from message payload
         logger.info(f"Initializing Journalist with persist={persist}, scrape_depth={scrape_depth}")
+        logger.info(f"Target URLs: {urls}")
+        logger.info(f"Keywords: {keywords}")
+        
         journalist = Journalist(persist=persist, scrape_depth=scrape_depth)
         
-        # Perform scraping
+        # Perform scraping with enhanced logging
+        logger.info("Starting scraping operation...")
+        logger.info("=== JOURNALIST SCRAPING BEGINS ===")
+        
         source_sessions = await journalist.read(urls=urls, keywords=keywords)
+        
+        logger.info("=== JOURNALIST SCRAPING COMPLETED ===")
 
         if not source_sessions:
             logger.warning("No sessions returned from journalist.read()")
             return
 
+        logger.info(f"Successfully completed scraping. Found {len(source_sessions)} sessions")
+
+        # Log source_domain for each session after evaluation
+        logger.info("=== SOURCE DOMAINS FOR EACH SESSION ===")
+        for i, session in enumerate(source_sessions):
+            source_domain = session.get("source_domain", "unknown_source")
+            logger.info(f"source_sessions[{i}][\"source_domain\"] = {source_domain}")
+        logger.info("=== END SOURCE DOMAINS ===")
+
         # Process each session
-        for session in source_sessions:
+        for i, session in enumerate(source_sessions):
+            logger.info(f"Processing session {i+1}/{len(source_sessions)}")
+            
             # Extract domain from session or URL
             source_domain = session.get("source_domain", "unknown_source")
             if not source_domain or source_domain == "unknown_source":
@@ -80,6 +137,13 @@ async def _process_scraping_request(message_data: dict):
             # Get session ID or create one
             session_id = session.get("session_metadata", {}).get("session_id", f"session_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}")
             
+            # Log session details
+            articles_count = session.get("articles_count", 0)
+            logger.info(f"Session {i+1} details:")
+            logger.info(f"  - Source domain: {source_domain}")
+            logger.info(f"  - Session ID: {session_id}")
+            logger.info(f"  - Articles count: {articles_count}")
+            
             # Construct GCS path based on new structure
             current_date_path = datetime.now(timezone.utc).strftime("%Y-%m")
             
@@ -90,31 +154,39 @@ async def _process_scraping_request(message_data: dict):
             local_path = Path("/tmp") / filename
 
             # Save session data locally
+            logger.info(f"Saving session data to {local_path}")
             with open(local_path, "w", encoding="utf-8") as f:
                 json.dump(session, f, indent=2, ensure_ascii=False)
 
             # Upload to GCS
+            logger.info(f"Uploading to GCS: gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
             bucket = storage_client.bucket(GCS_BUCKET_NAME)
             blob = bucket.blob(gcs_object_path)
             blob.upload_from_filename(str(local_path))
-            logger.info(f"Uploaded {filename} to GCS path gs://{GCS_BUCKET_NAME}/{gcs_object_path}")            # Publish success message
+            logger.info(f"Successfully uploaded {filename} to GCS")
+            
+            # Publish success message
             success_message = {
                 "status": "success",
                 "gcs_path": f"gs://{GCS_BUCKET_NAME}/{gcs_object_path}",
                 "source_domain": source_domain,
                 "session_id": session_id,
                 "date_path": current_date_path,
-                "articles_count": session.get("articles_count", 0),
+                "articles_count": articles_count,
                 "keywords": keywords,
                 "scrape_depth": scrape_depth,
                 "persist": persist,
                 "processed_at": datetime.now(timezone.utc).isoformat()
             }
             
+            logger.info(f"Publishing success message for session {session_id}")
             topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
             future = publisher.publish(topic_path, json.dumps(success_message).encode("utf-8"))
             future.result()  # Wait for publish to complete
-            logger.info(f"Published success message for {filename}")
+            logger.info(f"Successfully published message for {filename}")
+
+        logger.info(f"=== SCRAPING PROCESS COMPLETED SUCCESSFULLY ===")
+        logger.info(f"Total sessions processed: {len(source_sessions)}")
 
     except Exception as e:
         logger.error(f"An error occurred during scraping: {e}", exc_info=True)
@@ -129,10 +201,11 @@ async def _process_scraping_request(message_data: dict):
         }
         
         try:
+            logger.info("Publishing error message")
             topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
             future = publisher.publish(topic_path, json.dumps(error_message).encode("utf-8"))
             future.result()
-            logger.info("Published error message")
+            logger.info("Successfully published error message")
         except Exception as pub_error:
             logger.error(f"Failed to publish error message: {pub_error}")
 
@@ -144,7 +217,9 @@ def scrape_and_store(event, context):
         event (dict): The Pub/Sub message data.
         context (google.cloud.functions.Context): The Cloud Functions event metadata.
     """
+    logger.info(f"=== CLOUD FUNCTION TRIGGERED ===")
     logger.info(f"Function triggered with event: {event}")
+    logger.info(f"Context: {context}")
     
     if isinstance(event, dict) and "data" in event:
         try:
@@ -155,3 +230,6 @@ def scrape_and_store(event, context):
             logger.error(f"Error processing event: {e}", exc_info=True)
     else:
         logger.error("Invalid Pub/Sub message format")
+    
+    logger.info(f"=== CLOUD FUNCTION EXECUTION COMPLETED ===")
+
