@@ -7,6 +7,10 @@ import json
 import base64
 import os
 from google.cloud import pubsub_v1
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configuration
 PROJECT_ID = "gen-lang-client-0306766464"
@@ -24,8 +28,9 @@ def trigger_scraper_function():
     message_payload = {
         "keywords": ["fenerbahce", "mourinho", "galatasaray"],
         "urls": [
-            "https://www.fanatik.com.tr/",
-            "https://www.fotomac.com.tr/"
+            "https://www.sporx.com/",
+            "https://www.ntvspor.net/"
+           
         ],
         "scrape_depth": 1,
         "persist": False,
