@@ -30,56 +30,6 @@ except ImportError as e:
     Journalist = None
     logger.error(f"❌ Failed to import journalist library: {e}")
 
-async def test_journalist_basic():
-    """
-    Test basic journalist functionality with simple parameters.
-    """
-    if not JOURNALIST_AVAILABLE:
-        logger.error("Journalist library not available. Cannot run test.")
-        return None
-    
-    # Test configuration
-    test_urls = [
-        "https://www.fanatik.com.tr/",
-        "https://www.fotomac.com.tr/"
-    ]
-    test_keywords = ["fenerbahce", "mourinho", "galatasaray"]
-    
-    try:
-        logger.info("=== Testing Basic Journalist Functionality ===")
-        logger.info(f"URLs: {test_urls}")
-        logger.info(f"Keywords: {test_keywords}")
-        
-        # Initialize Journalist with default settings
-        journalist = Journalist(persist=True, scrape_depth=2)
-        logger.info("✅ Journalist initialized with persist=True, scrape_depth=2")
-        
-        # Perform scraping
-        logger.info("Starting scraping operation...")
-        source_sessions = await journalist.read(urls=test_urls, keywords=test_keywords)
-        
-        if source_sessions:
-            logger.info(f"✅ Scraping completed. Found {len(source_sessions)} sessions")
-            
-            # Process results
-            for i, session in enumerate(source_sessions):
-                logger.info(f"Session {i+1}:")
-                logger.info(f"  Source domain: {session.get('source_domain', 'unknown')}")
-                logger.info(f"  Articles count: {session.get('articles_count', 0)}")
-                
-                # Save session data to local file for inspection
-                session_file = f"test_session_{i+1}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
-                with open(session_file, 'w', encoding='utf-8') as f:
-                    json.dump(session, f, indent=2, ensure_ascii=False)
-                logger.info(f"  Saved to: {session_file}")
-        else:
-            logger.warning("⚠️ No sessions returned from journalist.read()")
-            
-        return source_sessions
-        
-    except Exception as e:
-        logger.error(f"❌ Basic test failed: {e}", exc_info=True)
-        raise
 
 async def test_journalist_configurable():
     """
@@ -93,11 +43,12 @@ async def test_journalist_configurable():
     test_payload = {
         "keywords": ["fenerbahce", "mourinho", "galatasaray"],
         "urls": [
-            "https://www.fanatik.com.tr/",
-            "https://www.fotomac.com.tr/"
+            "https://www.sporx.com/",
+            "https://www.ntvspor.net/",
+            "https://www.fanatik.com.tr/"
         ],
         "scrape_depth": 1,
-        "persist": False,
+        "persist": True,
         "description": "Turkish sports websites for local football coverage"
     }
     
@@ -165,11 +116,7 @@ async def main():
         logger.error("❌ Journalist library not available. Please install journ4list")
         return
     
-    try:
-        # Test 1: Basic functionality
-        logger.info("\n" + "="*50)
-        basic_result = await test_journalist_basic()
-        
+    try:        
         # Test 2: Configurable parameters
         logger.info("\n" + "="*50)
         config_result = await test_journalist_configurable()
@@ -177,7 +124,6 @@ async def main():
         # Summary
         logger.info("\n" + "="*50)
         logger.info("✅ All journalist tests completed successfully!")
-        logger.info(f"Basic test sessions: {len(basic_result) if basic_result else 0}")
         logger.info(f"Configurable test sessions: {len(config_result) if config_result else 0}")
         
     except Exception as e:
