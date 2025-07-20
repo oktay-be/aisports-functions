@@ -96,6 +96,22 @@ async def _process_scraping_request(message_data: dict):
         
         journalist = Journalist(persist=persist, scrape_depth=scrape_depth)
         
+        # Start timing the scraping operation
+        start_time = datetime.now(timezone.utc)
+        logger.info(f"Scraping started at: {start_time.isoformat()}")
+        
+        # Perform scraping with enhanced logging
+        logger.info("Starting scraping operation...")
+        logger.info("=== JOURNALIST SCRAPING BEGINS ===")
+        
+        source_sessions = await journalist.read(urls=urls, keywords=keywords)
+        
+        logger.info("=== JOURNALIST SCRAPING COMPLETED ===")
+
+        # Log elapsed time after scraping
+        elapsed_time = datetime.now(timezone.utc) - start_time
+        logger.info(f"Scraping operation completed in: {elapsed_time.total_seconds():.2f} seconds")
+
         # Log working directory and filesystem state before scraping
         current_dir = os.getcwd()
         logger.info(f"Current working directory: {current_dir}")
@@ -106,25 +122,7 @@ async def _process_scraping_request(message_data: dict):
             logger.info(f"Current directory contents: {[str(p) for p in current_dir_contents]}")
         except Exception as e:
             logger.error(f"Error listing current directory contents: {e}")
-            
-        journalist_workspace = Path(current_dir) / ".journalist_workspace"
-        logger.info(f"Checking for .journalist_workspace at: {journalist_workspace}")
-        logger.info(f".journalist_workspace exists: {journalist_workspace.exists()}")
-        
-        if journalist_workspace.exists():
-            try:
-                workspace_contents = list(journalist_workspace.iterdir())
-                logger.info(f".journalist_workspace contents: {[str(p) for p in workspace_contents]}")
-            except Exception as e:
-                logger.error(f"Error listing .journalist_workspace contents: {e}")
-        
-        # Perform scraping with enhanced logging
-        logger.info("Starting scraping operation...")
-        logger.info("=== JOURNALIST SCRAPING BEGINS ===")
-        
-        source_sessions = await journalist.read(urls=urls, keywords=keywords)
-        
-        logger.info("=== JOURNALIST SCRAPING COMPLETED ===")
+           
 
         if not source_sessions:
             logger.warning("No sessions returned from journalist.read()")
@@ -242,6 +240,10 @@ async def _process_scraping_request(message_data: dict):
 
         logger.info(f"=== SCRAPING PROCESS COMPLETED SUCCESSFULLY ===")
         logger.info(f"Total sessions processed: {len(source_sessions)}")
+        
+        # Log total elapsed time for the entire process
+        total_elapsed_time = datetime.now(timezone.utc) - start_time
+        logger.info(f"Total elapsed time: {total_elapsed_time.total_seconds():.2f} seconds")
 
     except Exception as e:
         logger.error(f"An error occurred during scraping: {e}", exc_info=True)
