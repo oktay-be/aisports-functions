@@ -28,7 +28,7 @@ def trigger_scraper_function():
     message_payload = {
         "keywords": ["fenerbahce", "mourinho", "galatasaray"],
         "urls": [
-            "https://www.sporx.com/",
+            "https://www.fanatik.com.tr",
             "https://www.ntvspor.net/"
            
         ],

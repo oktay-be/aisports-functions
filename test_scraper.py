@@ -43,8 +43,8 @@ async def test_journalist_configurable():
     test_payload = {
         "keywords": ["fenerbahce", "mourinho", "galatasaray"],
         "urls": [
-            "https://www.sporx.com/",
-            "https://www.ntvspor.net/",
+            "https://www.fanatik.com.tr",
+            "https://www.ntvspor.net/"
         ],
         "scrape_depth": 1,
         "persist": True,

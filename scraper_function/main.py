@@ -96,6 +96,28 @@ async def _process_scraping_request(message_data: dict):
         
         journalist = Journalist(persist=persist, scrape_depth=scrape_depth)
         
+        # Log working directory and filesystem state before scraping
+        current_dir = os.getcwd()
+        logger.info(f"Current working directory: {current_dir}")
+        
+        # List contents of current directory
+        try:
+            current_dir_contents = list(Path(current_dir).iterdir())
+            logger.info(f"Current directory contents: {[str(p) for p in current_dir_contents]}")
+        except Exception as e:
+            logger.error(f"Error listing current directory contents: {e}")
+            
+        journalist_workspace = Path(current_dir) / ".journalist_workspace"
+        logger.info(f"Checking for .journalist_workspace at: {journalist_workspace}")
+        logger.info(f".journalist_workspace exists: {journalist_workspace.exists()}")
+        
+        if journalist_workspace.exists():
+            try:
+                workspace_contents = list(journalist_workspace.iterdir())
+                logger.info(f".journalist_workspace contents: {[str(p) for p in workspace_contents]}")
+            except Exception as e:
+                logger.error(f"Error listing .journalist_workspace contents: {e}")
+        
         # Perform scraping with enhanced logging
         logger.info("Starting scraping operation...")
         logger.info("=== JOURNALIST SCRAPING BEGINS ===")
@@ -154,6 +176,29 @@ async def _process_scraping_request(message_data: dict):
             local_path_str = session.get("session_metadata", {}).get("file_path")
             if not local_path_str:
                 logger.error(f"Could not find file_path in session metadata for session {session_id}")
+                
+                # Debug: Log session metadata structure
+                session_metadata = session.get("session_metadata", {})
+                logger.info(f"Session metadata keys: {list(session_metadata.keys())}")
+                logger.info(f"Full session metadata: {session_metadata}")
+                
+                # Debug: Check filesystem again
+                current_dir = os.getcwd()
+                logger.info(f"Current working directory during error: {current_dir}")
+                journalist_workspace = Path(current_dir) / ".journalist_workspace"
+                logger.info(f".journalist_workspace exists during error: {journalist_workspace.exists()}")
+                
+                if journalist_workspace.exists():
+                    try:
+                        workspace_contents = list(journalist_workspace.iterdir())
+                        logger.info(f".journalist_workspace contents during error: {[str(p) for p in workspace_contents]}")
+                        
+                        # Look for session files matching the session_id
+                        session_files = [p for p in workspace_contents if session_id in str(p)]
+                        logger.info(f"Files matching session_id {session_id}: {[str(p) for p in session_files]}")
+                    except Exception as e:
+                        logger.error(f"Error listing workspace contents during error: {e}")
+                
                 continue  # Skip to the next session
 
             local_path = Path(local_path_str)
