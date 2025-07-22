@@ -16,41 +16,15 @@ except ImportError:
     Journalist = None
 
 # Enhanced logging configuration to capture all logs including journalist library
+# Use dynamic log level from environment variable
+JOURNALIST_LOG_LEVEL = os.getenv('JOURNALIST_LOG_LEVEL', 'INFO')
+
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, JOURNALIST_LOG_LEVEL),
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     stream=sys.stdout,
     force=True  # Force reconfiguration of root logger
 )
-
-# Configure root logger to capture all logs
-root_logger = logging.getLogger()
-root_logger.setLevel(logging.INFO)
-
-# Ensure all loggers propagate to root logger
-logging.getLogger().handlers.clear()
-handler = logging.StreamHandler(sys.stdout)
-handler.setFormatter(logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s'))
-logging.getLogger().addHandler(handler)
-logging.getLogger().setLevel(logging.INFO)
-
-# Explicitly configure journalist library loggers if available
-if JOURNALIST_AVAILABLE:
-    # Set logging level for journalist and related libraries
-    journalist_loggers = [
-        'journalist',
-        'journalist.core',
-        'journalist.extractors',
-        'journalist.scrapers',
-        'journalist.filters',
-        'aiohttp',
-        'asyncio'
-    ]
-    
-    for logger_name in journalist_loggers:
-        logger = logging.getLogger(logger_name)
-        logger.setLevel(logging.INFO)
-        logger.propagate = True  # Ensure propagation to root logger
 
 # Application logger
 logger = logging.getLogger(__name__)
@@ -66,6 +40,7 @@ SESSION_DATA_CREATED_TOPIC = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-da
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 ARTICLES_SUBFOLDER = os.getenv('ARTICLES_SUBFOLDER', 'articles/')
+# JOURNALIST_LOG_LEVEL already defined above for logging configuration
 
 async def _process_scraping_request(message_data: dict):
     """
@@ -79,6 +54,7 @@ async def _process_scraping_request(message_data: dict):
     keywords = message_data.get("keywords")
     scrape_depth = message_data.get("scrape_depth", 1)  # Default to 1 if not provided
     persist = message_data.get("persist", True)  # Default to True if not provided
+    log_level = message_data.get("log_level", JOURNALIST_LOG_LEVEL)  # Use payload log_level or env var
 
     if not urls or not keywords:
         logger.error("Missing 'urls' or 'keywords' in the request.")
@@ -90,7 +66,7 @@ async def _process_scraping_request(message_data: dict):
     
     try:
         # Initialize Journalist with configuration from message payload
-        logger.info(f"Initializing Journalist with persist={persist}, scrape_depth={scrape_depth}")
+        logger.info(f"Initializing Journalist with persist={persist}, scrape_depth={scrape_depth}, log_level={log_level}")
         logger.info(f"Target URLs: {urls}")
         logger.info(f"Keywords: {keywords}")
         
@@ -104,7 +80,12 @@ async def _process_scraping_request(message_data: dict):
         logger.info("Starting scraping operation...")
         logger.info("=== JOURNALIST SCRAPING BEGINS ===")
         
-        source_sessions = await journalist.read(urls=urls, keywords=keywords)
+        # Use journalist.read with log_level parameter for 0.4.0 compatibility
+        source_sessions = await journalist.read(
+            urls=urls, 
+            keywords=keywords,
+            log_level=log_level  # Use the log_level from payload or environment variable
+        )
         
         logger.info("=== JOURNALIST SCRAPING COMPLETED ===")
 

@@ -43,5 +43,6 @@ jobs:
           GCS_BUCKET_NAME=aisports-scraping,
           SESSION_DATA_CREATED_TOPIC=session-data-created,
           NEWS_DATA_ROOT_PREFIX=news_data/,
-          ARTICLES_SUBFOLDER=articles/
+          ARTICLES_SUBFOLDER=articles/,
+          JOURNALIST_LOG_LEVEL=INFO
         service_account: svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com

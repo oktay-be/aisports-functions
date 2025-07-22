@@ -23,17 +23,16 @@ def trigger_scraper_function():
     # Initialize publisher client
     publisher = pubsub_v1.PublisherClient()
     topic_path = publisher.topic_path(PROJECT_ID, TOPIC_ID)
-    
-    # Define test scraping request payload
+      # Define test scraping request payload  
     message_payload = {
         "keywords": ["fenerbahce", "mourinho", "galatasaray"],
         "urls": [
             "https://www.fanatik.com.tr",
             "https://www.ntvspor.net/"
-           
         ],
         "scrape_depth": 1,
         "persist": False,
+        "log_level": "INFO"  # Test the new journalist 0.4.0 log_level parameter
     }
 
     print(f"Publishing message to topic: {topic_path}")
