@@ -33,6 +33,11 @@ jobs:
       with:
         name: scrape-and-store
         runtime: python312
+        memory: 2048Mi
+        cpu: 0.5
+        max_instance_count: 1
+        min_instance_count: 0
+        max_instance_request_concurrency: 1
         entry_point: scrape_and_store
         source_dir: scraper_function
         event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
@@ -44,5 +49,6 @@ jobs:
           SESSION_DATA_CREATED_TOPIC=session-data-created,
           NEWS_DATA_ROOT_PREFIX=news_data/,
           ARTICLES_SUBFOLDER=articles/,
-          JOURNALIST_LOG_LEVEL=INFO
+          JOURNALIST_LOG_LEVEL=INFO,
+          ENVIRONMENT=development,
         service_account: svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com

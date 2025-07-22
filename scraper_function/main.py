@@ -40,6 +40,7 @@ SESSION_DATA_CREATED_TOPIC = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-da
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 ARTICLES_SUBFOLDER = os.getenv('ARTICLES_SUBFOLDER', 'articles/')
+ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
 # JOURNALIST_LOG_LEVEL already defined above for logging configuration
 
 async def _process_scraping_request(message_data: dict):
