@@ -35,7 +35,7 @@ jobs:
         runtime: python312
         memory: 2Gi
         cpu: 1
-        service_timeout: 600
+        service_timeout: 540
         max_instance_count: 1
         min_instance_count: 0
         max_instance_request_concurrency: 1
