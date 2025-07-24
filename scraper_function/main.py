@@ -108,6 +108,10 @@ async def _process_scraping_request(message_data: dict):
         )
         
         logger.info("=== JOURNALIST SCRAPING COMPLETED ===")
+        
+        # List /tmp directory contents again
+        tmp_contents_after = list(Path("/tmp").iterdir())
+        logger.info(f"/tmp contents after: {[str(p) for p in tmp_contents_after]}")
 
         # Log elapsed time after scraping
         elapsed_time = datetime.now(timezone.utc) - start_time
