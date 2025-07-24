@@ -108,7 +108,7 @@ async def _process_scraping_request(message_data: dict):
         )
         
         logger.info("=== JOURNALIST SCRAPING COMPLETED ===")
-        
+
         # List /tmp directory contents again
         tmp_contents_after = list(Path("/tmp").iterdir())
         logger.info(f"/tmp contents after: {[str(p) for p in tmp_contents_after]}")
@@ -179,7 +179,7 @@ async def _process_scraping_request(message_data: dict):
             # Example: news_data/sources/bbc/2025-07-19/articles/session_data_bbc_com_uk_001.json
             gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{source_domain}/{current_date_path}/{ARTICLES_SUBFOLDER}session_data_{source_domain}_{session_id}.json"
               # When persist=True, journalist saves the file. Get the path from the session metadata.
-            local_path_str = session.get("session_metadata", {}).get("file_path")
+            local_path_str = session.get("file_path")
             if not local_path_str:
                 logger.error(f"Could not find file_path in session metadata for session {session_id}")
                 # Log available metadata keys for debugging
