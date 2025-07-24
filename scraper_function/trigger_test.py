@@ -16,15 +16,12 @@ load_dotenv()
 PROJECT_ID = "gen-lang-client-0306766464"
 TOPIC_ID = "scraping-requests"
 
-def trigger_scraper_function():
+def get_test_message_payload():
     """
-    Trigger the scraper function by publishing a message to the Pub/Sub topic.
+    Get the test message payload for scraping requests.
+    This can be imported by other modules for local testing.
     """
-    # Initialize publisher client
-    publisher = pubsub_v1.PublisherClient()
-    topic_path = publisher.topic_path(PROJECT_ID, TOPIC_ID)
-      # Define test scraping request payload  
-    message_payload = {
+    return {
         "keywords": ["fenerbahce", "mourinho", "galatasaray"],
         "urls": [
             "https://www.fanatik.com.tr",
@@ -34,6 +31,17 @@ def trigger_scraper_function():
         "persist": False,
         "log_level": "INFO"  # Test the new journalist 0.4.0 log_level parameter
     }
+
+def trigger_scraper_function():
+    """
+    Trigger the scraper function by publishing a message to the Pub/Sub topic.
+    """
+    # Initialize publisher client
+    publisher = pubsub_v1.PublisherClient()
+    topic_path = publisher.topic_path(PROJECT_ID, TOPIC_ID)
+    
+    # Get test message payload
+    message_payload = get_test_message_payload()
 
     print(f"Publishing message to topic: {topic_path}")
     print(f"Message payload: {json.dumps(message_payload, indent=2)}")

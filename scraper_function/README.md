@@ -145,6 +145,66 @@ The function includes comprehensive error handling:
 - Handles missing journalist library gracefully
 - Validates input message format
 
+## Local Development
+
+For local development and testing, you can run the scraper function without Pub/Sub:
+
+### Method 1: Using the Local Runner Script
+
+1. Copy the environment template:
+   ```bash
+   copy .env.example .env
+   ```
+
+2. Edit `.env` file with your settings:
+   ```
+   ENVIRONMENT=local
+   JOURNALIST_LOG_LEVEL=INFO
+   ```
+
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Run the local script:
+   ```bash
+   python run_local.py
+   ```
+
+### Method 2: Running main.py Directly
+
+1. Set the environment variable:
+   ```bash
+   set ENVIRONMENT=local
+   ```
+
+2. Run main.py:
+   ```bash
+   python main.py
+   ```
+
+### Local Execution Behavior
+
+When `ENVIRONMENT=local`:
+- **Skips Pub/Sub publishing** - No messages are published to topics
+- **Skips GCS upload** - Files are saved locally instead
+- **Creates local output structure** - Files are organized in `./local_output/` directory
+- **Uses test data** - Uses the same test data from `trigger_test.py`
+- **Enhanced logging** - All operations are logged for debugging
+
+### Local Output Structure
+
+Results are saved in:
+```
+./local_output/
+├── sources/
+│   ├── <source_domain>/
+│   │   ├── <YYYY-MM-DD>/
+│   │   │   ├── articles/
+│   │   │   │   ├── session_data_<domain>_<session_id>.json
+```
+
 ## Next Steps
 
 After the scraper function is deployed and tested, proceed to implement:

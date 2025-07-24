@@ -30,9 +30,16 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 logger.info("Logging configuration initialized for cloud environment")
 
-# Initialize Google Cloud clients
-publisher = pubsub_v1.PublisherClient()
-storage_client = storage.Client()
+# Initialize Google Cloud clients (only in cloud environment)
+ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
+
+if ENVIRONMENT != 'local':
+    publisher = pubsub_v1.PublisherClient()
+    storage_client = storage.Client()
+else:
+    publisher = None
+    storage_client = None
+    logger.info("Running in local environment - skipping Google Cloud client initialization")
 
 # Configuration from environment variables
 PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT', 'gen-lang-client-0306766464')
@@ -40,7 +47,6 @@ SESSION_DATA_CREATED_TOPIC = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-da
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 ARTICLES_SUBFOLDER = os.getenv('ARTICLES_SUBFOLDER', 'articles/')
-ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
 # JOURNALIST_LOG_LEVEL already defined above for logging configuration
 
 async def _process_scraping_request(message_data: dict):
@@ -155,8 +161,7 @@ async def _process_scraping_request(message_data: dict):
             
             # Example: news_data/sources/bbc/2025-07-19/articles/session_data_bbc_com_uk_001.json
             gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{source_domain}/{current_date_path}/{ARTICLES_SUBFOLDER}session_data_{source_domain}_{session_id}.json"
-            
-            # When persist=True, journalist saves the file. Get the path from the session metadata.
+              # When persist=True, journalist saves the file. Get the path from the session metadata.
             local_path_str = session.get("session_metadata", {}).get("file_path")
             if not local_path_str:
                 logger.error(f"Could not find file_path in session metadata for session {session_id}")
@@ -170,43 +175,57 @@ async def _process_scraping_request(message_data: dict):
                 logger.error(f"File provided by journalist does not exist: {local_path}")
                 continue # Skip to the next session
 
-            # Upload the file created by the journalist library to GCS
-            logger.info(f"Uploading file from {local_path} to GCS: gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
-            bucket = storage_client.bucket(GCS_BUCKET_NAME)
-            blob = bucket.blob(gcs_object_path)
-            blob.upload_from_filename(str(local_path))
-            logger.info(f"Successfully uploaded {local_path.name} to GCS")
-
-            # Clean up the local file after upload
-            try:
-                local_path.unlink()
-                logger.info(f"Cleaned up local file: {local_path}")
-            except OSError as e:
-                logger.error(f"Error removing local file {local_path}: {e}")
-            
-            # Publish success message
-            success_message = {
-                "status": "success",
-                "gcs_path": f"gs://{GCS_BUCKET_NAME}/{gcs_object_path}",
-                "source_domain": source_domain,
-                "session_id": session_id,
-                "date_path": current_date_path,
-                "articles_count": articles_count,
-                "keywords": keywords,
-                "scrape_depth": scrape_depth,
-                "persist": persist,
-                "processed_at": datetime.now(timezone.utc).isoformat()
-            }
-            
-            logger.info(f"Publishing success message for session {session_id}")
-            topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
-            future = publisher.publish(topic_path, json.dumps(success_message).encode("utf-8"))
-            future.result()  # Wait for publish to complete
-            logger.info(f"Successfully published message for {local_path.name}")
+            if ENVIRONMENT == 'local':
+                # In local environment, just keep the file and log its location
+                logger.info(f"Local environment: File saved at {local_path}")
+                logger.info(f"File size: {local_path.stat().st_size} bytes")
+                
+                # Log success message (without publishing)
+                success_message = {
+                    "status": "success",
+                    "local_path": str(local_path),
+                    "source_domain": source_domain,
+                    "session_id": session_id,
+                    "date_path": current_date_path,
+                    "articles_count": articles_count,
+                    "keywords": keywords,
+                    "scrape_depth": scrape_depth,
+                    "persist": persist,
+                    "processed_at": datetime.now(timezone.utc).isoformat()
+                }
+                logger.info(f"Local processing success: {json.dumps(success_message, indent=2)}")
+                
+            else:
+                # Cloud environment: Upload to GCS and publish message
+                logger.info(f"Uploading file from {local_path} to GCS: gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
+                bucket = storage_client.bucket(GCS_BUCKET_NAME)
+                blob = bucket.blob(gcs_object_path)
+                blob.upload_from_filename(str(local_path))
+                logger.info(f"Successfully uploaded {local_path.name} to GCS")
+                logger.info(f"File persisted at: {local_path}")
+                
+                # Publish success message
+                success_message = {
+                    "status": "success",
+                    "gcs_path": f"gs://{GCS_BUCKET_NAME}/{gcs_object_path}",
+                    "source_domain": source_domain,
+                    "session_id": session_id,
+                    "date_path": current_date_path,
+                    "articles_count": articles_count,
+                    "keywords": keywords,
+                    "scrape_depth": scrape_depth,
+                    "persist": persist,
+                    "processed_at": datetime.now(timezone.utc).isoformat()
+                }
+                
+                logger.info(f"Publishing success message for session {session_id}")
+                topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
+                future = publisher.publish(topic_path, json.dumps(success_message).encode("utf-8"))
+                future.result()  # Wait for publish to complete
+                logger.info(f"Successfully published message for {local_path.name}")
 
         logger.info(f"=== SCRAPING PROCESS COMPLETED SUCCESSFULLY ===")
-        logger.info(f"Total sessions processed: {len(source_sessions)}")
-        
+        logger.info(f"Total sessions processed: {len(source_sessions)}")        
         # Log total elapsed time for the entire process
         total_elapsed_time = datetime.now(timezone.utc) - start_time
         logger.info(f"Total elapsed time: {total_elapsed_time.total_seconds():.2f} seconds")
@@ -214,7 +233,7 @@ async def _process_scraping_request(message_data: dict):
     except Exception as e:
         logger.error(f"An error occurred during scraping: {e}", exc_info=True)
         
-        # Publish error message to the same topic with error status
+        # Publish error message to the same topic with error status (only in cloud environment)
         error_message = {
             "status": "error",
             "error": str(e),
@@ -223,14 +242,17 @@ async def _process_scraping_request(message_data: dict):
             "processed_at": datetime.now(timezone.utc).isoformat()
         }
         
-        try:
-            logger.info("Publishing error message")
-            topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
-            future = publisher.publish(topic_path, json.dumps(error_message).encode("utf-8"))
-            future.result()
-            logger.info("Successfully published error message")
-        except Exception as pub_error:
-            logger.error(f"Failed to publish error message: {pub_error}")
+        if ENVIRONMENT == 'local':
+            logger.error(f"Local processing error: {json.dumps(error_message, indent=2)}")
+        else:
+            try:
+                logger.info("Publishing error message")
+                topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
+                future = publisher.publish(topic_path, json.dumps(error_message).encode("utf-8"))
+                future.result()
+                logger.info("Successfully published error message")
+            except Exception as pub_error:
+                logger.error(f"Failed to publish error message: {pub_error}")
 
 def scrape_and_store(event, context):
     """
@@ -255,3 +277,51 @@ def scrape_and_store(event, context):
         logger.error("Invalid Pub/Sub message format")
     
     logger.info(f"=== CLOUD FUNCTION EXECUTION COMPLETED ===")
+
+def get_test_data():
+    """
+    Get test data similar to what's defined in trigger_test.py
+    """
+    try:
+        # Try to import test data from trigger_test.py
+        from trigger_test import get_test_message_payload
+        test_data = get_test_message_payload()
+        # Override persist to True for local testing to see file creation
+        test_data["persist"] = True
+        return test_data
+    except ImportError:
+        # Fallback test data if trigger_test.py is not available
+        logger.warning("Could not import trigger_test.py, using fallback test data")
+        return {
+            "keywords": ["fenerbahce", "mourinho", "galatasaray"],
+            "urls": [
+                "https://www.fanatik.com.tr",
+                "https://www.ntvspor.net/"
+            ],
+            "scrape_depth": 1,
+            "persist": True,  # Enable persist for local testing to see file creation
+            "log_level": "INFO"
+        }
+
+async def main_local():
+    """
+    Main function for local execution
+    """
+    logger.info("=== STARTING LOCAL EXECUTION ===")
+    logger.info(f"Environment: {ENVIRONMENT}")
+    
+    # Get test data
+    test_data = get_test_data()
+    logger.info(f"Using test data: {json.dumps(test_data, indent=2)}")
+    
+    # Process the scraping request
+    await _process_scraping_request(test_data)
+    
+    logger.info("=== LOCAL EXECUTION COMPLETED ===")
+
+if __name__ == "__main__":
+    if ENVIRONMENT == 'local':
+        logger.info("Running in local mode")
+        asyncio.run(main_local())
+    else:
+        logger.info("Running in cloud mode - use Pub/Sub trigger")
