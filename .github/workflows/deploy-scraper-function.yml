@@ -33,8 +33,9 @@ jobs:
       with:
         name: scrape-and-store
         runtime: python312
-        memory: 1Gi
-        cpu: 0.5
+        memory: 2Gi
+        cpu: 1
+        service_timeout: 600
         max_instance_count: 1
         min_instance_count: 0
         max_instance_request_concurrency: 1
