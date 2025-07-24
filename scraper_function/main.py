@@ -109,29 +109,6 @@ async def _process_scraping_request(message_data: dict):
         
         logger.info("=== JOURNALIST SCRAPING COMPLETED ===")
 
-        # List /tmp directory contents again
-        tmp_contents_after = list(Path("/tmp").iterdir())
-        logger.info(f"/tmp contents after: {[str(p) for p in tmp_contents_after]}")
-
-        # Log elapsed time after scraping
-        elapsed_time = datetime.now(timezone.utc) - start_time
-        logger.info(f"Scraping operation completed in: {elapsed_time.total_seconds():.2f} seconds")
-
-        # # Log working directory and filesystem state after scraping
-        # current_dir = os.getcwd()
-        # logger.info(f"Current working directory: {current_dir}")
-        
-        # List contents of /tmp/.journalist_workspace directory
-        try:
-            journalist_workspace = Path("/tmp/.journalist_workspace")
-            if journalist_workspace.exists():
-                workspace_contents = list(journalist_workspace.iterdir())
-                logger.info(f"/tmp/.journalist_workspace contents: {[str(p) for p in workspace_contents]}")
-            else:
-                logger.info("/tmp/.journalist_workspace does not exist")
-        except Exception as e:
-            logger.error(f"Error listing /tmp/.journalist_workspace contents: {e}")
-           
 
         if not source_sessions:
             logger.warning("No sessions returned from journalist.read()")
@@ -144,27 +121,19 @@ async def _process_scraping_request(message_data: dict):
         for i, session in enumerate(source_sessions):
             source_domain = session.get("source_domain", "unknown_source")
             logger.info(f"source_sessions[{i}][\"source_domain\"] = {source_domain}")
-        logger.info("=== END SOURCE DOMAINS ===")
-
+        logger.info("=== END SOURCE DOMAINS ===")        
+        
         # Process each session
         for i, session in enumerate(source_sessions):
             logger.info(f"Processing session {i+1}/{len(source_sessions)}")
-
-            logger.info(f"session var {session.get("file_path")}")
-           
-            
-            # Extract domain from session or URL
+              # Extract domain from session or URL and make it filesystem-safe
+            from werkzeug.utils import secure_filename
             source_domain = session.get("source_domain", "unknown_source")
             if not source_domain or source_domain == "unknown_source":
-                # Try to extract domain from the first URL
-                if urls:
-                    from urllib.parse import urlparse
-                    domain = urlparse(urls[0]).netloc
-                    source_domain = domain.replace(".", "_").replace("-", "_").replace("www_", "")
-                else:
-                    source_domain = "unknown_source"
+                logger.error(f"No valid source_domain found for session {i+1}")
+                continue  # Skip this session
             else:
-                source_domain = source_domain.replace(".", "_").replace("-", "_").replace("www_", "")
+                source_domain = secure_filename(source_domain) or "unknown_source"
             
             # Get session ID or create one
             session_id = session.get("session_metadata", {}).get("session_id", f"session_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}")
@@ -181,29 +150,11 @@ async def _process_scraping_request(message_data: dict):
             
             # Example: news_data/sources/bbc/2025-07-19/articles/session_data_bbc_com_uk_001.json
             gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{source_domain}/{current_date_path}/{ARTICLES_SUBFOLDER}session_data_{source_domain}_{session_id}.json"
-              # When persist=True, journalist saves the file. Get the path from the session metadata.
-            local_path_str = session.get("file_path")
-            if not local_path_str:
-                logger.error(f"Could not find file_path in session metadata for session {session_id}")
-                # Log available metadata keys for debugging
-                session_metadata = session.get("session_metadata", {})
-                logger.info(f"Available session metadata keys: {list(session_metadata.keys())}")
-                continue  # Skip to the next session
 
-            local_path = Path(local_path_str)
-            if not local_path.exists():
-                logger.error(f"File provided by journalist does not exist: {local_path}")
-                continue # Skip to the next session
-
-            if ENVIRONMENT == 'local':
-                # In local environment, just keep the file and log its location
-                logger.info(f"Local environment: File saved at {local_path}")
-                logger.info(f"File size: {local_path.stat().st_size} bytes")
-                
+            if ENVIRONMENT == 'local':                
                 # Log success message (without publishing)
                 success_message = {
                     "status": "success",
-                    "local_path": str(local_path),
                     "source_domain": source_domain,
                     "session_id": session_id,
                     "date_path": current_date_path,
@@ -215,14 +166,15 @@ async def _process_scraping_request(message_data: dict):
                 }
                 logger.info(f"Local processing success: {json.dumps(success_message, indent=2)}")
                 
-            else:
+            else:                
+                
                 # Cloud environment: Upload to GCS and publish message
-                logger.info(f"Uploading file from {local_path} to GCS: gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
+                logger.info(f"Uploading to GCS: gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
                 bucket = storage_client.bucket(GCS_BUCKET_NAME)
                 blob = bucket.blob(gcs_object_path)
-                blob.upload_from_filename(str(local_path))
-                logger.info(f"Successfully uploaded {local_path.name} to GCS")
-                logger.info(f"File persisted at: {local_path}")
+                blob.upload_from_string(json.dumps(session, indent=2, ensure_ascii=False))
+                logger.info(f"Successfully uploaded to GCS")
+                logger.info(f"File persisted at: ")
                 
                 # Publish success message
                 success_message = {
@@ -242,7 +194,7 @@ async def _process_scraping_request(message_data: dict):
                 topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
                 future = publisher.publish(topic_path, json.dumps(success_message).encode("utf-8"))
                 future.result()  # Wait for publish to complete
-                logger.info(f"Successfully published message for {local_path.name}")
+                logger.info(f"Successfully published message for session {session_id}")
 
         logger.info(f"=== SCRAPING PROCESS COMPLETED SUCCESSFULLY ===")
         logger.info(f"Total sessions processed: {len(source_sessions)}")        
