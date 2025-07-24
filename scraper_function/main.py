@@ -87,7 +87,20 @@ async def _process_scraping_request(message_data: dict):
         logger.info("Starting scraping operation...")
         logger.info("=== JOURNALIST SCRAPING BEGINS ===")
         
-        # Use journalist.read with log_level parameter for 0.4.0 compatibility
+        # List /tmp directory contents
+        tmp_contents_before = list(Path("/tmp").iterdir())
+        logger.info(f"/tmp contents before: {[str(p) for p in tmp_contents_before]}")
+        
+        # Create test file
+        test_file = Path("/tmp/test")
+        test_file.write_text("dummy")
+        logger.info(f"Created test file at {test_file}")
+        
+        # List /tmp directory contents again
+        tmp_contents_after = list(Path("/tmp").iterdir())
+        logger.info(f"/tmp contents after: {[str(p) for p in tmp_contents_after]}")
+        
+
         source_sessions = await journalist.read(
             urls=urls, 
             keywords=keywords,
