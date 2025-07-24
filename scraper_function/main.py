@@ -149,6 +149,9 @@ async def _process_scraping_request(message_data: dict):
         # Process each session
         for i, session in enumerate(source_sessions):
             logger.info(f"Processing session {i+1}/{len(source_sessions)}")
+
+            logger.info(f"session var {session}")
+           
             
             # Extract domain from session or URL
             source_domain = session.get("source_domain", "unknown_source")
