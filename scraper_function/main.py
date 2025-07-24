@@ -166,12 +166,20 @@ async def _process_scraping_request(message_data: dict):
                 }
                 logger.info(f"Local processing success: {json.dumps(success_message, indent=2)}")
                 
-            else:                
-                  # Cloud environment: Upload to GCS and publish message
+            else:                    # Cloud environment: Upload to GCS and publish message
                 logger.info(f"Uploading to GCS: gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
                 bucket = storage_client.bucket(GCS_BUCKET_NAME)
                 blob = bucket.blob(gcs_object_path)
-                blob.upload_from_string(json.dumps(session, indent=2, ensure_ascii=False), content_type='application/json')
+                # blob.upload_from_string(json.dumps(session, indent=2, ensure_ascii=False), content_type='application/json')
+
+                # Write session data to tmp file
+                tmp_file_path = Path(f"/tmp/session_data_{source_domain}_{session_id}.json")
+                with open(tmp_file_path, 'w', encoding='utf-8') as f:
+                    json.dump(session, f, indent=2, ensure_ascii=False)
+                logger.info(f"Session data written to {tmp_file_path}")
+                
+                # Upload from file
+                blob.upload_from_filename(str(tmp_file_path), content_type='application/json')
                 logger.info(f"Successfully uploaded to GCS")
                 logger.info(f"File persisted at: ")
                 
@@ -189,11 +197,11 @@ async def _process_scraping_request(message_data: dict):
                     "processed_at": datetime.now(timezone.utc).isoformat()
                 }
                 
-                logger.info(f"Publishing success message for session {session_id}")
-                topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
-                future = publisher.publish(topic_path, json.dumps(success_message).encode("utf-8"))
-                future.result()  # Wait for publish to complete
-                logger.info(f"Successfully published message for session {session_id}")
+                # logger.info(f"Publishing success message for session {session_id}")
+                # topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
+                # future = publisher.publish(topic_path, json.dumps(success_message).encode("utf-8"))
+                # future.result()  # Wait for publish to complete
+                # logger.info(f"Successfully published message for session {session_id}")
 
         logger.info(f"=== SCRAPING PROCESS COMPLETED SUCCESSFULLY ===")
         logger.info(f"Total sessions processed: {len(source_sessions)}")        
