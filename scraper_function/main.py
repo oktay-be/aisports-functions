@@ -125,15 +125,15 @@ async def _process_scraping_request(message_data: dict):
         
         # Process each session
         for i, session in enumerate(source_sessions):
-            logger.info(f"Processing session {i+1}/{len(source_sessions)}")
-              # Extract domain from session or URL and make it filesystem-safe
+            logger.info(f"Processing session {i+1}/{len(source_sessions)}")            # Extract domain from session or URL and make it filesystem-safe
             from werkzeug.utils import secure_filename
             source_domain = session.get("source_domain", "unknown_source")
             if not source_domain or source_domain == "unknown_source":
                 logger.error(f"No valid source_domain found for session {i+1}")
                 continue  # Skip this session
             else:
-                source_domain = secure_filename(source_domain) or "unknown_source"
+                # Make it filesystem-safe and convert dots to underscores
+                source_domain = secure_filename(source_domain).replace(".", "_") or "unknown_source"
             
             # Get session ID or create one
             session_id = session.get("session_metadata", {}).get("session_id", f"session_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}")
@@ -167,12 +167,11 @@ async def _process_scraping_request(message_data: dict):
                 logger.info(f"Local processing success: {json.dumps(success_message, indent=2)}")
                 
             else:                
-                
-                # Cloud environment: Upload to GCS and publish message
+                  # Cloud environment: Upload to GCS and publish message
                 logger.info(f"Uploading to GCS: gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
                 bucket = storage_client.bucket(GCS_BUCKET_NAME)
                 blob = bucket.blob(gcs_object_path)
-                blob.upload_from_string(json.dumps(session, indent=2, ensure_ascii=False))
+                blob.upload_from_string(json.dumps(session, indent=2, ensure_ascii=False), content_type='application/json')
                 logger.info(f"Successfully uploaded to GCS")
                 logger.info(f"File persisted at: ")
                 
