@@ -108,8 +108,7 @@ async def _process_scraping_request(message_data: dict):
         )
         
         logger.info("=== JOURNALIST SCRAPING COMPLETED ===")
-
-
+        
         if not source_sessions:
             logger.warning("No sessions returned from journalist.read()")
             return
@@ -122,6 +121,9 @@ async def _process_scraping_request(message_data: dict):
             source_domain = session.get("source_domain", "unknown_source")
             logger.info(f"source_sessions[{i}][\"source_domain\"] = {source_domain}")
         logger.info("=== END SOURCE DOMAINS ===")        
+        
+        # Initialize list to accumulate success messages for batch publishing
+        success_messages = []
         
         # Process each session
         for i, session in enumerate(source_sessions):
@@ -147,12 +149,11 @@ async def _process_scraping_request(message_data: dict):
             
             # Construct GCS path based on new structure
             current_date_path = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            
-            # Example: news_data/sources/bbc/2025-07-19/articles/session_data_bbc_com_uk_001.json
+              # Example: news_data/sources/bbc/2025-07-19/articles/session_data_bbc_com_uk_001.json
             gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{source_domain}/{current_date_path}/{ARTICLES_SUBFOLDER}session_data_{source_domain}_{session_id}.json"
 
             if ENVIRONMENT == 'local':                
-                # Log success message (without publishing)
+                # Create success message for batch processing
                 success_message = {
                     "status": "success",
                     "source_domain": source_domain,
@@ -164,9 +165,11 @@ async def _process_scraping_request(message_data: dict):
                     "persist": persist,
                     "processed_at": datetime.now(timezone.utc).isoformat()
                 }
-                logger.info(f"Local processing success: {json.dumps(success_message, indent=2)}")
+                success_messages.append(success_message)
+                logger.info(f"Local processing success message added to batch: {json.dumps(success_message, indent=2)}")
                 
-            else:                    # Cloud environment: Upload to GCS and publish message
+            else:                    
+                # Cloud environment: Upload to GCS and publish message
                 logger.info(f"Uploading to GCS: gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
                 bucket = storage_client.bucket(GCS_BUCKET_NAME)
                 blob = bucket.blob(gcs_object_path)
@@ -177,13 +180,12 @@ async def _process_scraping_request(message_data: dict):
                 with open(tmp_file_path, 'w', encoding='utf-8') as f:
                     json.dump(session, f, indent=2, ensure_ascii=False)
                 logger.info(f"Session data written to {tmp_file_path}")
-                
-                # Upload from file
+                  # Upload from file
                 blob.upload_from_filename(str(tmp_file_path), content_type='application/json')
                 logger.info(f"Successfully uploaded to GCS")
                 logger.info(f"File persisted at: ")
                 
-                # Publish success message
+                # Create success message for batch processing
                 success_message = {
                     "status": "success",
                     "gcs_path": f"gs://{GCS_BUCKET_NAME}/{gcs_object_path}",
@@ -196,12 +198,40 @@ async def _process_scraping_request(message_data: dict):
                     "persist": persist,
                     "processed_at": datetime.now(timezone.utc).isoformat()
                 }
-                
-                # logger.info(f"Publishing success message for session {session_id}")
-                # topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
-                # future = publisher.publish(topic_path, json.dumps(success_message).encode("utf-8"))
-                # future.result()  # Wait for publish to complete
-                # logger.info(f"Successfully published message for session {session_id}")
+                success_messages.append(success_message)
+                logger.info(f"Cloud processing success message added to batch for session {session_id}")
+
+        # After processing all sessions, publish accumulated success messages as a batch
+        if success_messages:
+            logger.info(f"=== BATCH PUBLISHING {len(success_messages)} SUCCESS MESSAGES ===")
+            
+            if ENVIRONMENT == 'local':
+                logger.info("Local environment: Batch success messages summary:")
+                for i, msg in enumerate(success_messages):
+                    logger.info(f"  Message {i+1}: {msg['source_domain']} - {msg['session_id']} ({msg['articles_count']} articles)")
+                logger.info(f"Total success messages in batch: {len(success_messages)}")
+            else:
+                try:
+                    # Create batch message containing all success messages
+                    batch_message = {
+                        "status": "batch_success",
+                        "batch_size": len(success_messages),
+                        "success_messages": success_messages,
+                        "batch_processed_at": datetime.now(timezone.utc).isoformat(),
+                        "total_articles": sum(msg.get("articles_count", 0) for msg in success_messages)
+                    }
+                    
+                    logger.info(f"Publishing batch success message with {len(success_messages)} individual messages")
+                    topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
+                    future = publisher.publish(topic_path, json.dumps(batch_message).encode("utf-8"))
+                    future.result()  # Wait for publish to complete
+                    logger.info(f"Successfully published batch message with {len(success_messages)} success messages")
+                    logger.info(f"Total articles in batch: {batch_message['total_articles']}")
+                    
+                except Exception as pub_error:
+                    logger.error(f"Failed to publish batch success message: {pub_error}")
+        else:
+            logger.warning("No success messages to publish in batch")
 
         logger.info(f"=== SCRAPING PROCESS COMPLETED SUCCESSFULLY ===")
         logger.info(f"Total sessions processed: {len(source_sessions)}")        
@@ -259,32 +289,41 @@ def scrape_and_store(event, context):
 
 def get_test_data():
     """
-    Get test data similar to what's defined in trigger_test.py
+    Load test parameters from search_parameters.json for local execution.
+    This replaces all hardcoded test data.
     """
     try:
-        # Try to import test data from trigger_test.py
-        from trigger_test import get_test_message_payload
-        test_data = get_test_message_payload()
-        # Override persist to True for local testing to see file creation
-        test_data["persist"] = True
+        # Determine the path to search_parameters.json relative to this file
+        current_dir = Path(__file__).parent
+        params_file = current_dir.parent / "search_parameters.json"
+        
+        if not params_file.exists():
+            raise FileNotFoundError(f"search_parameters.json not found at {params_file}")
+        
+        with open(params_file, 'r', encoding='utf-8') as f:
+            test_data = json.load(f)
+        
+        # Ensure required fields are present
+        required_fields = ["keywords", "urls", "scrape_depth"]
+        for field in required_fields:
+            if field not in test_data:
+                raise ValueError(f"Required field '{field}' missing from search_parameters.json")
+        
+        # Set default values for optional fields
+        test_data.setdefault("persist", True)  # Enable persist for local testing
+        test_data.setdefault("log_level", "INFO")
+        
+        logger.info(f"Successfully loaded test parameters from {params_file}")
         return test_data
-    except ImportError:
-        # Fallback test data if trigger_test.py is not available
-        logger.warning("Could not import trigger_test.py, using fallback test data")
-        return {
-            "keywords": ["fenerbahce", "mourinho", "galatasaray"],
-            "urls": [
-                "https://www.fanatik.com.tr",
-                "https://www.ntvspor.net/"
-            ],
-            "scrape_depth": 1,
-            "persist": True,  # Enable persist for local testing to see file creation
-            "log_level": "INFO"
-        }
+        
+    except Exception as e:
+        logger.error(f"Failed to load test parameters from search_parameters.json: {e}")
+        raise RuntimeError(f"Cannot load test parameters: {e}")
 
 async def main_local():
     """
-    Main function for local execution
+    Main function for local execution.
+    Loads test parameters from search_parameters.json instead of using hardcoded data.
     """
     logger.info("=== STARTING LOCAL EXECUTION ===")
     logger.info(f"Environment: {ENVIRONMENT}")
