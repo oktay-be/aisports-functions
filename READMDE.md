@@ -82,9 +82,9 @@ Common variables:
 All functions are automatically deployed via GitHub Actions when changes are pushed to the `main` branch:
 
 - `.github/workflows/deploy-scraper-function.yml` - Deploys scraper function
+- `.github/workflows/deploy-batch-builder-function.yml` - Deploys batch builder function
 
 Additional workflows will be created as functions are implemented:
-- `deploy-batch-builder-function.yml` (when batch_builder_function/ is created)
 - `deploy-ai-processor-function.yml` (when ai_processor_function/ is created)
 - `deploy-result-processor-function.yml` (when result_processor_function/ is created)
 
@@ -99,6 +99,10 @@ Each function directory contains test files and local testing utilities. For exa
 ```cmd
 cd scraper_function
 python trigger_test.py
+
+# Or test batch builder function
+cd batch_builder_function  
+python trigger_test.py
 ```
 
 ## Project Structure
@@ -107,7 +111,7 @@ python trigger_test.py
 aisports-functions/
 ├── .github/workflows/          # GitHub Actions CI/CD workflows
 ├── scraper_function/           # Web scraping Cloud Function
-├── batch_builder_function/     # Batch preparation function (to be created)
+├── batch_builder_function/     # Batch preparation function
 ├── ai_processor_function/      # AI processing function (to be created)  
 ├── result_processor_function/  # Result processing function (to be created)
 ├── shared_libs/               # Shared libraries (to be created)
