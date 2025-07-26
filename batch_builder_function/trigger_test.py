@@ -14,7 +14,7 @@ load_dotenv()
 
 # Configuration
 PROJECT_ID = "gen-lang-client-0306766464"
-TOPIC_ID = "session-data-created"
+TOPIC_ID = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-data-created')
 GCS_BUCKET_NAME = "aisports-news-data"
 
 def get_test_batch_message():

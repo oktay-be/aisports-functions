@@ -42,14 +42,14 @@ jobs:
         entry_point: scrape_and_store
         source_dir: scraper_function
         event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
-        event_trigger_pubsub_topic: projects/gen-lang-client-0306766464/topics/scraping-requests
+        event_trigger_pubsub_topic: projects/gen-lang-client-0306766464/topics/${{ vars.SCRAPING_REQUEST_TOPIC || 'scraping-requests' }}
         region: us-central1
         environment_variables: |
-          GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,
-          GCS_BUCKET_NAME=aisports-scraping,
-          SESSION_DATA_CREATED_TOPIC=session-data-created,
-          NEWS_DATA_ROOT_PREFIX=news_data/,
-          ARTICLES_SUBFOLDER=articles/,
-          JOURNALIST_LOG_LEVEL=INFO,
-          ENVIRONMENT=development,
+          GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464
+          GCS_BUCKET_NAME=aisports-scraping
+          SESSION_DATA_CREATED_TOPIC=${{ vars.SESSION_DATA_CREATED_TOPIC || 'session-data-created' }}
+          NEWS_DATA_ROOT_PREFIX=news_data/
+          ARTICLES_SUBFOLDER=articles/
+          JOURNALIST_LOG_LEVEL=INFO
+          ENVIRONMENT=development
         service_account: svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com

@@ -75,6 +75,13 @@ Common variables:
 - `GCS_BUCKET_NAME=aisports-news-data`
 - `NEWS_DATA_ROOT_PREFIX=news_data/`
 
+Pub/Sub Topic Configuration (parametrized for flexibility):
+- `SCRAPING_REQUEST_TOPIC=scraping-requests` - Topic that triggers scraper function
+- `SESSION_DATA_CREATED_TOPIC=session-data-created` - Topic for session data completion messages
+- `BATCH_JOB_CREATED_TOPIC=batch-job-created` - Topic for batch job status messages
+
+These topic names can be customized by setting GitHub repository variables or environment variables.
+
 ## Deployment
 
 ### Automated CI/CD

@@ -14,7 +14,7 @@ load_dotenv()
 
 # Configuration
 PROJECT_ID = "gen-lang-client-0306766464"
-TOPIC_ID = "scraping-requests"
+TOPIC_ID = os.getenv('SCRAPING_REQUEST_TOPIC', 'scraping-requests')
 
 def get_test_message_payload():
     """

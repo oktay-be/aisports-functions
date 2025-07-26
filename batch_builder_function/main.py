@@ -45,7 +45,8 @@ else:
 
 # Configuration from environment variables
 PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT', 'gen-lang-client-0306766464')
-BATCH_JOB_CREATED_TOPIC = os.getenv('BATCH_JOB_CREATED_TOPIC', 'batch-job-created')
+SESSION_DATA_CREATED_TOPIC = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-data-created')  # Input topic (trigger)
+BATCH_JOB_CREATED_TOPIC = os.getenv('BATCH_JOB_CREATED_TOPIC', 'batch-job-created')  # Output topic
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME', 'aisports-news-data')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 BATCH_PROCESSING_FOLDER = os.getenv('BATCH_PROCESSING_FOLDER', 'batch_processing/')
@@ -529,14 +530,15 @@ async def _process_batch_request(message_data: dict):
 def build_batch(event, context):
     """
     Background Cloud Function to be triggered by Pub/Sub.
-    Triggered by messages from the session-data-created topic.
+    Triggered by messages from the SESSION_DATA_CREATED_TOPIC (configured in deployment).
     
     Args:
         event (dict): The Pub/Sub message data.
         context (google.cloud.functions.Context): The Cloud Functions event metadata.
     """
     logger.info(f"=== BATCH BUILDER FUNCTION TRIGGERED ===")
-    logger.info(f"Function triggered with event: {event}")
+    logger.info(f"Function triggered via {SESSION_DATA_CREATED_TOPIC} topic")
+    logger.info(f"Event: {event}")
     logger.info(f"Context: {context}")
     
     if isinstance(event, dict) and "data" in event:
