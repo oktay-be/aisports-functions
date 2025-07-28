@@ -48,8 +48,9 @@ jobs:
           GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464
           GCS_BUCKET_NAME=aisports-scraping
           SESSION_DATA_CREATED_TOPIC=session-data-created
-          BATCH_JOB_CREATED_TOPIC=batch-job-created
+          BATCH_REQUEST_CREATED_TOPIC=batch-request-created
           NEWS_DATA_ROOT_PREFIX=news_data/
+          STRUCTURED_OUTPUT=true
           BATCH_PROCESSING_FOLDER=batch_processing/
           VERTEX_AI_LOCATION=us-central1
           VERTEX_AI_MODEL=gemini-2.5-pro

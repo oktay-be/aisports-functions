@@ -37,7 +37,7 @@ The function uses the following environment variables:
 
 - `GOOGLE_CLOUD_PROJECT` - Google Cloud project ID (default: gen-lang-client-0306766464)
 - `GCS_BUCKET_NAME` - GCS bucket for storing data (default: aisports-news-data)
-- `BATCH_JOB_CREATED_TOPIC` - Pub/Sub topic for publishing batch job results (default: batch-job-created)  
+- `BATCH_REQUEST_CREATED_TOPIC` - Pub/Sub topic for publishing batch job results (default: batch-request-created)  
 - `NEWS_DATA_ROOT_PREFIX` - Root prefix for GCS storage (default: news_data/)
 - `BATCH_PROCESSING_FOLDER` - Subfolder for batch processing (default: batch_processing/)
 - `VERTEX_AI_LOCATION` - Vertex AI region (default: us-central1)
@@ -83,7 +83,7 @@ The function expects batch_success messages from the scraper function:
 }
 ```
 
-### Output Message (to batch-job-created topic)
+### Output Message (to batch-request-created topic)
 ```json
 {
   "status": "batch_job_created",
@@ -137,11 +137,11 @@ The function includes comprehensive error handling:
 - Batch job submission failures
 - Metadata storage errors
 
-Error messages are published to the same batch-job-created topic with status "batch_job_error".
+Error messages are published to the same batch-request-created topic with status "batch_job_error".
 
 ## Integration
 
 This function integrates with:
 - **Upstream**: Scraper Function (via session-data-created topic)
-- **Downstream**: AI Processor Function (via batch-job-created topic)  
+- **Downstream**: AI Processor Function (via batch-request-created topic)  
 - **Services**: Vertex AI, Google Cloud Storage, Pub/Sub

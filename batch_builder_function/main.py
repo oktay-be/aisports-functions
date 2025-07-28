@@ -46,7 +46,7 @@ else:
 # Configuration from environment variables
 PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT', 'gen-lang-client-0306766464')
 SESSION_DATA_CREATED_TOPIC = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-data-created')  # Input topic (trigger)
-BATCH_JOB_CREATED_TOPIC = os.getenv('BATCH_JOB_CREATED_TOPIC', 'batch-job-created')  # Output topic
+BATCH_REQUEST_CREATED_TOPIC = os.getenv('BATCH_REQUEST_CREATED_TOPIC', 'batch-request-created')  # Output topic
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME', 'aisports-news-data')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 BATCH_PROCESSING_FOLDER = os.getenv('BATCH_PROCESSING_FOLDER', 'batch_processing/')
@@ -495,13 +495,13 @@ async def _process_batch_request(message_data: dict):
             "original_batch_message": message_data
         }
         
-        # Publish to batch-job-created topic
-        topic_path = publisher.topic_path(PROJECT_ID, BATCH_JOB_CREATED_TOPIC)
+        # Publish to batch-request-created topic
+        topic_path = publisher.topic_path(PROJECT_ID, BATCH_REQUEST_CREATED_TOPIC)
         future = publisher.publish(topic_path, json.dumps(batch_job_message).encode("utf-8"))
         future.result()  # Wait for publish to complete
         
         logger.info(f"Successfully created and submitted batch job: {job_name}")
-        logger.info(f"Batch job message published to {BATCH_JOB_CREATED_TOPIC}")
+        logger.info(f"Batch job message published to {BATCH_REQUEST_CREATED_TOPIC}")
         
     except Exception as e:
         logger.error(f"Error processing batch request: {e}", exc_info=True)
@@ -519,7 +519,7 @@ async def _process_batch_request(message_data: dict):
             logger.error(f"Local batch processing error: {json.dumps(error_message, indent=2)}")
         else:
             try:
-                topic_path = publisher.topic_path(PROJECT_ID, BATCH_JOB_CREATED_TOPIC)
+                topic_path = publisher.topic_path(PROJECT_ID, BATCH_REQUEST_CREATED_TOPIC)
                 future = publisher.publish(topic_path, json.dumps(error_message).encode("utf-8"))
                 future.result()
                 logger.info("Error message published successfully")
