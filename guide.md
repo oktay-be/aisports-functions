@@ -381,7 +381,7 @@ Now, any message published to the `scraping-requests` topic will trigger your `s
 
 ### 2. Batch Request Builder Function
 
-**Role**: This function listens for `session-data-created` events, reads the session data from GCS, constructs Vertex AI batch prediction request JSONL files, uploads them to GCS, and then publishes a `batch-processing-requests` event.
+**Role**: This function listens for `session-data-created` events, reads the session data from GCS, constructs Vertex AI batch prediction request JSONL files, uploads them to GCS, and then publishes a `batch-request-created` event.
 
 **Technology**: Python, Google Cloud Functions, Google Cloud Pub/Sub, Google Cloud Storage, Google Cloud Vertex AI.
 
@@ -417,7 +417,7 @@ storage_client = storage.Client()
 # Configuration from environment variables
 PROJECT_ID = os.getenv(\'GOOGLE_CLOUD_PROJECT\')
 SESSION_DATA_CREATED_TOPIC = os.getenv(\'SESSION_DATA_CREATED_TOPIC\', \'session-data-created\')
-BATCH_PROCESSING_REQUESTS_TOPIC = os.getenv(\'BATCH_PROCESSING_REQUESTS_TOPIC\', \'batch-processing-requests\')
+BATCH_REQUEST_CREATED_TOPIC = os.getenv(\'BATCH_REQUEST_CREATED_TOPIC\', \'batch-request-created\')
 GCS_BUCKET_NAME = os.getenv(\'GCS_BUCKET_NAME\', \'your-session-data-bucket\')
 NEWS_DATA_ROOT_PREFIX = os.getenv(\'NEWS_DATA_ROOT_PREFIX\', \'news_data/\')
 BATCH_PROCESSING_SUBFOLDER = os.getenv(\'BATCH_PROCESSING_SUBFOLDER\', \'batch_processing/\')
@@ -515,7 +515,7 @@ async def _build_batch_request(message_data: dict):
             "original_session_gcs_path": gcs_path # Pass original path for result processing
         }
         future = publisher.publish(
-            publisher.topic_path(PROJECT_ID, BATCH_PROCESSING_REQUESTS_TOPIC),
+            publisher.topic_path(PROJECT_ID, BATCH_REQUEST_CREATED_TOPIC),
             json.dumps(batch_event_data).encode("utf-8")
         )
         future.result()
@@ -565,7 +565,7 @@ google-cloud-aiplatform
         --source batch_builder_function/ \
         --entry-point build_batch_request \
         --trigger-topic session-data-created \
-        --set-env-vars GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,GCS_BUCKET_NAME=your-session-data-bucket,BATCH_PROCESSING_REQUESTS_TOPIC=batch-processing-requests,NEWS_DATA_ROOT_PREFIX=news_data/,BATCH_PROCESSING_SUBFOLDER=batch_processing/ \
+        --set-env-vars GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,GCS_BUCKET_NAME=your-session-data-bucket,BATCH_REQUEST_CREATED_TOPIC=batch-request-created,NEWS_DATA_ROOT_PREFIX=news_data/,BATCH_PROCESSING_SUBFOLDER=batch_processing/ \
         --service-account=svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
     ```
     *   `--gen2`: Deploys a 2nd generation Cloud Function.
@@ -591,7 +591,7 @@ google-cloud-aiplatform
             --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
             --role="roles/storage.objectCreator"
         ```
-    *   **Pub/Sub Publisher** (to publish `batch-processing-requests` events):
+    *   **Pub/Sub Publisher** (to publish `batch-request-created` events):
         ```bash
         gcloud projects add-iam-policy-binding gen-lang-client-0306766464 \
             --member="serviceAccount:svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com" \
@@ -611,13 +611,13 @@ Now, any message published to the `session-data-created` topic will trigger your
 
 ### 3. AI Batch Processor Function
 
-**Role**: This function listens for `batch-processing-requests` events, initiates a Vertex AI batch prediction job using the specified input JSONL file from GCS, and publishes a `batch-processing-completed` event upon job completion.
+**Role**: This function listens for `batch-request-created` events, initiates a Vertex AI batch prediction job using the specified input JSONL file from GCS, and publishes a `batch-processing-completed` event upon job completion.
 
 **Technology**: Python, Google Cloud Functions, Google Cloud Pub/Sub, Google Cloud Storage, Google Cloud Vertex AI.
 
 #### 3.1. Code Structure and Development
 
-This function will be triggered by messages on the `batch-processing-requests` Pub/Sub topic. Upon receiving a message, it will extract the GCS path to the batch request JSONL file and the desired output GCS prefix. It will then use the Vertex AI SDK to initiate a batch prediction job. Since batch jobs are asynchronous and can take time, this function will initiate the job and publish a `SUBMITTED` status, assuming a separate mechanism (e.g., another function triggered by Vertex AI notifications) will handle the `COMPLETED` status.
+This function will be triggered by messages on the `batch-request-created` Pub/Sub topic. Upon receiving a message, it will extract the GCS path to the batch request JSONL file and the desired output GCS prefix. It will then use the Vertex AI SDK to initiate a batch prediction job. Since batch jobs are asynchronous and can take time, this function will initiate the job and publish a `SUBMITTED` status, assuming a separate mechanism (e.g., another function triggered by Vertex AI notifications) will handle the `COMPLETED` status.
 
 Create a directory for your function (e.g., `ai_processor_function/`). Inside this directory, you will have your Python code file (e.g., `main.py`) and a `requirements.txt` file.
 
@@ -645,7 +645,7 @@ storage_client = storage.Client()
 # Configuration from environment variables
 PROJECT_ID = os.getenv(\'GOOGLE_CLOUD_PROJECT\')
 REGION = os.getenv(\'REGION\', \'us-central1\') # Vertex AI region
-BATCH_PROCESSING_REQUESTS_TOPIC = os.getenv(\'BATCH_PROCESSING_REQUESTS_TOPIC\', \'batch-processing-requests\')
+BATCH_REQUEST_CREATED_TOPIC = os.getenv(\'BATCH_REQUEST_CREATED_TOPIC\', \'batch-request-created\')
 BATCH_PROCESSING_COMPLETED_TOPIC = os.getenv(\'BATCH_PROCESSING_COMPLETED_TOPIC\', \'batch-processing-completed\')
 
 # Initialize Vertex AI
@@ -753,7 +753,7 @@ google-cloud-aiplatform
         --region us-central1 \
         --source ai_processor_function/ \
         --entry-point process_ai_batch_request \
-        --trigger-topic batch-processing-requests \
+        --trigger-topic batch-request-created \
         --set-env-vars GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464,REGION=us-central1,BATCH_PROCESSING_COMPLETED_TOPIC=batch-processing-completed \
         --service-account=svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
     ```
@@ -761,7 +761,7 @@ google-cloud-aiplatform
     *   `--runtime python39`: Specifies the Python 3.9 runtime.
     *   `--source ai_processor_function/`: Points to the directory containing your function code.
     *   `--entry-point process_ai_batch_request`: Specifies the name of the Python function to execute.
-    *   `--trigger-topic batch-processing-requests`: Configures the function to be triggered by messages on the `batch-processing-requests` Pub/Sub topic.
+    *   `--trigger-topic batch-request-created`: Configures the function to be triggered by messages on the `batch-request-created` Pub/Sub topic.
     *   `--set-env-vars`: No new environment variables are strictly needed here as the GCS paths are passed directly in the Pub/Sub message.
     *   `--service-account=svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com`: Specifies your existing service account for the function to run under.
 
@@ -795,7 +795,7 @@ google-cloud-aiplatform
             --role="roles/cloudfunctions.invoker"
         ```
 
-Now, any message published to the `batch-processing-requests` topic will trigger your `process-ai-batch-request` Cloud Function.
+Now, any message published to the `batch-request-created` topic will trigger your `process-ai-batch-request` Cloud Function.
 
 
 
@@ -1084,7 +1084,7 @@ While each function's deployment section includes topic creation, it's good prac
 **Required Topics**:
 *   `scraping-requests`: For initiating scraping jobs.
 *   `session-data-created`: For notifying when session data is available.
-*   `batch-processing-requests`: For initiating Vertex AI batch jobs.
+*   `batch-request-created`: For initiating Vertex AI batch jobs.
 *   `batch-processing-completed`: For notifying when Vertex AI batch jobs are done.
 *   `summary-available`: For notifying when AI summaries are processed and available.
 
@@ -1092,7 +1092,7 @@ While each function's deployment section includes topic creation, it's good prac
 ```bash
 gcloud pubsub topics create scraping-requests --project=gen-lang-client-0306766464
 gcloud pubsub topics create session-data-created --project=gen-lang-client-0306766464
-gcloud pubsub topics create batch-processing-requests --project=gen-lang-client-0306766464
+gcloud pubsub topics create batch-request-created --project=gen-lang-client-0306766464
 gcloud pubsub topics create batch-processing-completed --project=gen-lang-client-0306766464
 gcloud pubsub topics create summary-available --project=gen-lang-client-0306766464
 ```
