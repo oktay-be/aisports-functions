@@ -72,8 +72,7 @@ class BatchBuilder:
                 
                 http_options = HttpOptions(
                     api_version="v1",
-                    base_url=regional_endpoint
-                )
+                    base_url=regional_endpoint                )
                 
                 self.genai_client = genai.Client(
                     vertexai=True,
@@ -81,12 +80,11 @@ class BatchBuilder:
                     location=VERTEX_AI_LOCATION,
                     http_options=http_options
                 )
-                
                 logger.info(f"Vertex AI client initialized: project={PROJECT_ID}, location={VERTEX_AI_LOCATION}")
             except Exception as e:
                 logger.error(f"Failed to initialize Vertex AI client: {e}")
                 self.genai_client = None
-    
+
     def load_prompt_template(self) -> str:
         """
         Load the PROMPT.md template for processing session data.
@@ -113,58 +111,17 @@ class BatchBuilder:
 
 Please process the session data from the provided JSON file according to the specifications above.
 
-The data contains sports news articles that need to be processed according to the OUTPUT FORMAT specified in the prompt above. Return the structured JSON result."""
-                    
+The data contains sports news articles that need to be processed according to the OUTPUT FORMAT specified in the prompt above. Return the structured JSON result."""                    
                     logger.info(f"Loaded prompt template from {prompt_path}")
                     return combined_prompt
             
-            # If no PROMPT.md found, use a basic template
-            logger.warning("No PROMPT.md found, using basic template")
-            return self._get_default_prompt_template()
+            # PROMPT.md should always be available
+            raise FileNotFoundError("PROMPT.md not found in expected locations")
             
         except Exception as e:
             logger.error(f"Error loading prompt template: {e}")
-            return self._get_default_prompt_template()
+            raise
     
-    def _get_default_prompt_template(self) -> str:
-        """
-        Get a default prompt template if PROMPT.md is not available.
-        
-        Returns:
-            str: Default prompt template
-        """
-        return """You are an AI assistant specialized in processing sports news data. 
-
-Please analyze the provided JSON session data containing sports news articles and extract the following information:
-
-1. **Article Summaries**: Create concise summaries for each article
-2. **Key Topics**: Identify main sports topics and themes
-3. **Entities**: Extract team names, player names, and other sports entities
-4. **Sentiment**: Analyze the overall sentiment of the content
-
-Return the results in a structured JSON format with the following schema:
-{
-  "summary": "Overall summary of the session",
-  "articles": [
-    {
-      "title": "Article title",
-      "summary": "Article summary",
-      "topics": ["topic1", "topic2"],
-      "entities": ["entity1", "entity2"],
-      "sentiment": "positive/negative/neutral"
-    }
-  ],
-  "metadata": {
-    "processed_at": "ISO timestamp",
-    "total_articles": 0,
-    "source_domain": "domain"
-  }
-}
-
-## SESSION DATA TO PROCESS
-
-Please process the session data from the provided JSON file according to the specifications above."""
-
     def create_batch_request_jsonl(self, gcs_files: List[str], prompt_template: str) -> str:
         """
         Create a JSONL file with batch requests for each GCS file.
