@@ -243,7 +243,8 @@ The data contains sports news articles that need to be processed according to th
         """
         try:
             current_date_path = datetime.now(timezone.utc).strftime("%Y-%m")
-            output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{current_date_path}/batch_results{batch_id}/"
+            # output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{current_date_path}/batch_results{batch_id}/"\
+            output_uri = f"gs://multi-modal-ai-bucket/batch_results/{current_date_path}/{batch_id}/"
             
             # Create batch job configuration
             batch_config = CreateBatchJobConfig(dest=output_uri)
