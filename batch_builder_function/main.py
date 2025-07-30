@@ -158,7 +158,7 @@ The data contains sports news articles that need to be processed according to th
                                     {
                                         "fileData": {
                                             "fileUri": gcs_uri,
-                                            "mimeType": "application/json"
+                                            "mimeType": "text/plain"
                                         }
                                     }
                                 ]

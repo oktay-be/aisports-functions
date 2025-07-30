@@ -72,3 +72,4 @@ legacy_monolithic_code/**
 
 # Cloud
 resource.yaml
+*.jsonl
