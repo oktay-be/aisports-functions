@@ -136,7 +136,8 @@ Return a JSON object with this exact structure:
           "confidence": 0.6,
           "evidence": "Player reportedly unhappy with contract terms"
         }
-      ],      "source": "www.marca.es",
+      ],      
+      "source": "www.marca.es",
       "published_date": "2025-06-21T09:20:50+03:00",
       "keywords_matched": ["real madrid", "transfer"],
       "content_quality": "high|medium|low",
