@@ -165,7 +165,7 @@ The data contains sports news articles that need to be processed according to th
                             }
                         ],
                         "generationConfig": {
-                            "candidateCount": 1,
+                            "candidateCount": 2,
                             "temperature": 0.1,
                             "topP": 0.95,
                             "maxOutputTokens": 65535,
