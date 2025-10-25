@@ -243,8 +243,9 @@ The data contains sports news articles that need to be processed according to th
         """
         try:
             current_date_path = datetime.now(timezone.utc).strftime("%Y-%m")
-            # output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{current_date_path}/batch_results{batch_id}/"\
-            output_uri = f"gs://multi-modal-ai-bucket/batch_results/{current_date_path}/{batch_id}/"
+            output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{current_date_path}/batch_results/{batch_id}/"
+            
+            # output_uri = f"gs://multi-modal-ai-bucket/batch_results/{current_date_path}/{batch_id}/"
             
             # Create batch job configuration
             batch_config = CreateBatchJobConfig(dest=output_uri)
@@ -351,26 +352,29 @@ async def _process_batch_request(message_data: dict):
         logger.error("No success messages found in batch request")
         return
     
-    # ORIGINAL CODE - Extract GCS paths from success messages (commented out for troubleshooting)
-    # gcs_files = []
-    # for msg in success_messages:
-    #     gcs_path = msg.get("gcs_path")
-    #     if gcs_path and gcs_path.startswith("gs://"):
-    #         gcs_files.append(gcs_path)
-    #     else:
-    #         logger.warning(f"Invalid or missing gcs_path in message: {msg}")
-    # 
-    # if not gcs_files:
-    #     logger.error("No valid GCS files found in success messages")
-    #     return
+    # Extract GCS paths from success messages (commented out for troubleshooting)
+    gcs_files = []
+    for msg in success_messages:
+        gcs_path = msg.get("gcs_path")
+        if gcs_path and gcs_path.startswith("gs://"):
+            gcs_files.append(gcs_path)
+            logger.info(f"Added GCS file for batch processing: {gcs_path}")
+        else:
+            logger.warning(f"Invalid or missing gcs_path in message: {msg}")
+    
+    if not gcs_files:
+        logger.error("No valid GCS files found in success messages")
+        return
+    
+    logger.info(f"Total GCS files extracted from success messages: {len(gcs_files)}")
     
     # HARDCODED GCS FILES FOR TROUBLESHOOTING
-    gcs_files = [
-        "gs://multi-modal-ai-bucket/session_data_fanatik_com_tr.json",
-        "gs://multi-modal-ai-bucket/session_data_fotomac_com_tr.json", 
-        "gs://multi-modal-ai-bucket/session_data_milliyet_com_tr.json",
-        "gs://multi-modal-ai-bucket/session_data_sabah_com_tr.json"
-    ]
+    # gcs_files = [
+    #     "gs://multi-modal-ai-bucket/session_data_fanatik_com_tr.json",
+    #     "gs://multi-modal-ai-bucket/session_data_fotomac_com_tr.json", 
+    #     "gs://multi-modal-ai-bucket/session_data_milliyet_com_tr.json",
+    #     "gs://multi-modal-ai-bucket/session_data_sabah_com_tr.json"
+    # ]
     
     logger.info(f"Found {len(gcs_files)} GCS files to process:")
     for i, gcs_file in enumerate(gcs_files, 1):
