@@ -25,7 +25,8 @@ def get_test_message_payload():
         "keywords": ["fenerbahce", "mourinho", "galatasaray"],
         "urls": [
             "https://www.fanatik.com.tr",
-            "https://www.ntvspor.net/"
+            "https://www.ntvspor.net/",
+            "https://www.trtspor.com.tr/haber/futbol"
         ],
         "scrape_depth": 1,
         "persist": False,
