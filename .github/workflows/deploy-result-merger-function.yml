@@ -13,8 +13,8 @@ env:
   PROJECT_ID: 'gen-lang-client-0306766464'
   REGION: 'us-central1'
   TRIGGER_LOCATION: 'us'  # Must match GCS bucket location
-  WORKLOAD_IDENTITY_PROVIDER: 'projects/306766464/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
-  SERVICE_ACCOUNT: 'github-actions-sa@gen-lang-client-0306766464.iam.gserviceaccount.com'
+  WORKLOAD_IDENTITY_PROVIDER: 'projects/30106847072/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
+  SERVICE_ACCOUNT: 'svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com'
   FUNCTION_NAME: 'result-merger-function'
   GCS_BUCKET_NAME: 'aisports-scraping'
 
@@ -73,9 +73,9 @@ jobs:
           gcloud functions deploy ${{ env.FUNCTION_NAME }} \
             --gen2 \
             --region=${{ env.REGION }} \
+            --trigger-location=${{ env.TRIGGER_LOCATION }} \
             --trigger-event-filters-path-pattern="object=news_data/batch_processing/*/batch_results_raw/*_predictions.jsonl" \
-            --timeout=540s \
-            --update-env-vars="GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }},GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }},DEDUP_JOB_CREATED_TOPIC=dedup-job-created,VERTEX_AI_LOCATION=${{ env.REGION }},VERTEX_AI_MODEL=gemini-2.5-pro,NEWS_DATA_ROOT_PREFIX=news_data/,BATCH_PROCESSING_FOLDER=batch_processing/,BATCH_RESULTS_RAW_FOLDER=batch_results_raw/,BATCH_RESULTS_MERGED_FOLDER=batch_results_merged/,DEDUP_RESULTS_FOLDER=dedup_results/"
+            --timeout=540s
       
       - name: Output function details
         run: |
