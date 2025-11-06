@@ -41,29 +41,39 @@ jobs:
           project_id: ${{ env.PROJECT_ID }}
       
       - name: Deploy Result Merger Function
+        uses: google-github-actions/deploy-cloud-functions@v3
+        with:
+          name: ${{ env.FUNCTION_NAME }}
+          runtime: python312
+          region: ${{ env.REGION }}
+          source_dir: ./result_merger_function
+          entry_point: merge_results
+          event_trigger_type: google.cloud.storage.object.v1.finalized
+          event_trigger_location: ${{ env.REGION }}
+          event_trigger_filters: bucket=${{ env.GCS_BUCKET_NAME }}
+          memory: 1024Mi
+          max_instance_count: 10
+          min_instance_count: 0
+          environment_variables: |-
+            GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}
+            GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }}
+            DEDUP_JOB_CREATED_TOPIC=dedup-job-created
+            VERTEX_AI_LOCATION=${{ env.REGION }}
+            VERTEX_AI_MODEL=gemini-2.5-pro
+            NEWS_DATA_ROOT_PREFIX=news_data/
+            BATCH_PROCESSING_FOLDER=batch_processing/
+            BATCH_RESULTS_RAW_FOLDER=batch_results_raw/
+            BATCH_RESULTS_MERGED_FOLDER=batch_results_merged/
+            DEDUP_RESULTS_FOLDER=dedup_results/
+      
+      - name: Update function with path pattern filter
         run: |
           gcloud functions deploy ${{ env.FUNCTION_NAME }} \
             --gen2 \
-            --runtime=python312 \
             --region=${{ env.REGION }} \
-            --source=./result_merger_function \
-            --entry-point=merge_results \
-            --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
-            --trigger-event-filters="bucket=${{ env.GCS_BUCKET_NAME }}" \
             --trigger-event-filters-path-pattern="object=news_data/batch_processing/*/batch_results_raw/*_predictions.jsonl" \
-            --trigger-location=${{ env.REGION }} \
-            --memory=1Gi \
             --timeout=540s \
-            --max-instances=10 \
-            --min-instances=0 \
-            --set-env-vars="GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }},GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }},DEDUP_JOB_CREATED_TOPIC=dedup-job-created,VERTEX_AI_LOCATION=${{ env.REGION }},VERTEX_AI_MODEL=gemini-2.5-pro,NEWS_DATA_ROOT_PREFIX=news_data/,BATCH_PROCESSING_FOLDER=batch_processing/,BATCH_RESULTS_RAW_FOLDER=batch_results_raw/,BATCH_RESULTS_MERGED_FOLDER=batch_results_merged/,DEDUP_RESULTS_FOLDER=dedup_results/"
-      
-      - name: Verify deployment
-        run: |
-          gcloud functions describe ${{ env.FUNCTION_NAME }} \
-            --region=${{ env.REGION }} \
-            --gen2 \
-            --format="table(name,state,updateTime)"
+            --update-env-vars="GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }},GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }},DEDUP_JOB_CREATED_TOPIC=dedup-job-created,VERTEX_AI_LOCATION=${{ env.REGION }},VERTEX_AI_MODEL=gemini-2.5-pro,NEWS_DATA_ROOT_PREFIX=news_data/,BATCH_PROCESSING_FOLDER=batch_processing/,BATCH_RESULTS_RAW_FOLDER=batch_results_raw/,BATCH_RESULTS_MERGED_FOLDER=batch_results_merged/,DEDUP_RESULTS_FOLDER=dedup_results/"
       
       - name: Output function details
         run: |
