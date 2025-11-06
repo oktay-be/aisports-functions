@@ -13,8 +13,8 @@ env:
   PROJECT_ID: 'gen-lang-client-0306766464'
   REGION: 'us-central1'
   TRIGGER_LOCATION: 'us'  # Must match GCS bucket location
-  WORKLOAD_IDENTITY_PROVIDER: 'projects/306766464/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
-  SERVICE_ACCOUNT: 'github-actions-sa@gen-lang-client-0306766464.iam.gserviceaccount.com'
+  WORKLOAD_IDENTITY_PROVIDER: 'projects/30106847072/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
+  SERVICE_ACCOUNT: 'svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com'
   FUNCTION_NAME: 'result-merger-function'
   GCS_BUCKET_NAME: 'aisports-scraping'
 
