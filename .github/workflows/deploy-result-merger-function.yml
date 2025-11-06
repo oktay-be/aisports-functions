@@ -12,6 +12,7 @@ on:
 env:
   PROJECT_ID: 'gen-lang-client-0306766464'
   REGION: 'us-central1'
+  TRIGGER_LOCATION: 'us'  # Must match GCS bucket location
   WORKLOAD_IDENTITY_PROVIDER: 'projects/306766464/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
   SERVICE_ACCOUNT: 'github-actions-sa@gen-lang-client-0306766464.iam.gserviceaccount.com'
   FUNCTION_NAME: 'result-merger-function'
@@ -34,6 +35,7 @@ jobs:
         with:
           workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ env.SERVICE_ACCOUNT }}
+          export_environment_variables: true
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -49,7 +51,7 @@ jobs:
           source_dir: ./result_merger_function
           entry_point: merge_results
           event_trigger_type: google.cloud.storage.object.v1.finalized
-          event_trigger_location: ${{ env.REGION }}
+          event_trigger_location: ${{ env.TRIGGER_LOCATION }}
           event_trigger_filters: bucket=${{ env.GCS_BUCKET_NAME }}
           memory: 1024Mi
           max_instance_count: 10
