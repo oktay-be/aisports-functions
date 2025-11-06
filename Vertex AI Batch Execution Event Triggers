@@ -1,0 +1,84 @@
+# Vertex AI Batch Execution Event Triggers
+
+## Question
+
+I do batch execution (jsonl) in Google Cloud using Vertex AI and Gemini 2.5 Pro.
+
+It works fine and results arrive. I am doing this via Google Cloud Functions. I now want to somehow subscribe to the event that results arrived. Then some other function must trigger. How do I do that? What are my options?
+
+## Answer
+
+Excellent question. This is a classic event-driven architecture scenario on Google Cloud. When your Vertex AI batch prediction job completes, it writes the results to a Google Cloud Storage bucket. You can use this event—the creation of the result file(s)—to trigger another Cloud Function.
+
+Here are your primary options for setting this up:
+
+### 1. **Cloud Storage Triggers for Cloud Functions (Recommended)**
+
+This is the most direct and common method. You can configure a Cloud Function to be triggered whenever a new object is created in a specific Cloud Storage bucket.
+
+**How it works:**
+
+1. You configure your Vertex AI batch prediction job to write its output to a specific Cloud Storage bucket (which you are already doing).
+2. You create a new Cloud Function.
+3. Instead of a standard HTTP trigger, you set the trigger type to **Cloud Storage**.
+4. You specify the event type as **`google.cloud.storage.object.v1.finalized`**, which fires when a new object is created in the bucket.
+5. You point the trigger to the specific bucket where Vertex AI saves its results.
+
+**Advantages:**
+
+* **Simple and Direct:** This is a native, tightly integrated feature of Google Cloud.
+* **Serverless:** You don't have to manage any infrastructure for the trigger itself.
+* **Reliable:** It's a robust and widely used pattern.
+
+### 2. **Eventarc Triggers**
+
+Eventarc is a more centralized and flexible way to handle events across Google Cloud. It allows you to decouple event producers (like Cloud Storage) from event consumers (like Cloud Functions, Cloud Run, or Workflows).
+
+**How it works:**
+
+1. You create an Eventarc trigger.
+2. You specify the **Event Provider**, which in this case would be **Cloud Storage**.
+3. You specify the **Event**, which is `google.cloud.storage.object.v1.finalized`.
+4. You specify the **Destination**, which would be your second Cloud Function.
+
+**Advantages:**
+
+* **Decoupling:** Your function doesn't need to know where the event came from. You can easily swap out the trigger or the destination later.
+* **Flexibility:** Eventarc can route events to various services, not just Cloud Functions (e.g., Cloud Run, Workflows), giving you more options for your downstream process.
+* **Advanced Filtering:** You can filter events based on attributes, so your function only triggers for specific file names or types if needed.
+
+### 3. **Pub/Sub Notifications for Cloud Storage**
+
+This is an older but still very effective pattern. You can configure your Cloud Storage bucket to send a notification to a Pub/Sub topic whenever a new object is created. Then, you can trigger your Cloud Function from that Pub/Sub topic.
+
+**How it works:**
+
+1. Create a **Pub/Sub topic**.
+2. Configure your Cloud Storage bucket to publish notifications to this topic on object creation.
+3. Create a new Cloud Function with a **Pub/Sub trigger** that subscribes to that topic.
+
+**Advantages:**
+
+* **Fan-out:** A single event (file creation) can easily trigger multiple, different downstream services (subscribers) at the same time.
+* **Durability:** Pub/Sub messages can be retained if the consuming function is down, providing a buffer and preventing lost events.
+
+---
+
+### **Comparison Table**
+
+| Feature | Cloud Storage Trigger | Eventarc Trigger | Pub/Sub Trigger |
+| :--- | :--- | :--- | :--- |
+| **Simplicity** | **Highest** | Medium | Medium |
+| **Flexibility** | Good | **Highest** | High |
+| **Use Case** | 1-to-1 triggering (Storage → Function) | Many-to-many event routing | 1-to-many fan-out patterns |
+| **Setup** | Easiest, often done in the Cloud Functions UI. | Requires setting up Eventarc separately. | Requires setting up Pub/Sub and bucket notifications. |
+
+### **Recommendation**
+
+For your specific use case of triggering a single function after a Vertex AI job, the **direct Cloud Storage Trigger** is the simplest and most straightforward solution.
+
+If you anticipate building a more complex system where multiple services might need to react to this event, or if you want to standardize on a single eventing bus, then **Eventarc** is the more modern and scalable choice.
+
+---
+
+Would you like me to help you with the code or `gcloud` commands for setting up one of these options? We could start by creating a new Cloud Function with a Storage trigger.

@@ -1,0 +1,80 @@
+name: Deploy Result Merger Function
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'result_merger_function/**'
+      - '.github/workflows/deploy-result-merger-function.yml'
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: 'gen-lang-client-0306766464'
+  REGION: 'us-central1'
+  WORKLOAD_IDENTITY_PROVIDER: 'projects/306766464/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
+  SERVICE_ACCOUNT: 'github-actions-sa@gen-lang-client-0306766464.iam.gserviceaccount.com'
+  FUNCTION_NAME: 'result-merger-function'
+  GCS_BUCKET_NAME: 'aisports-scraping'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+      
+      - name: Deploy Result Merger Function
+        run: |
+          gcloud functions deploy ${{ env.FUNCTION_NAME }} \
+            --gen2 \
+            --runtime=python312 \
+            --region=${{ env.REGION }} \
+            --source=./result_merger_function \
+            --entry-point=merge_results \
+            --trigger-event-filters="type=google.cloud.storage.object.v1.finalized" \
+            --trigger-event-filters="bucket=${{ env.GCS_BUCKET_NAME }}" \
+            --trigger-event-filters-path-pattern="object=news_data/batch_processing/*/batch_results_raw/*_predictions.jsonl" \
+            --trigger-location=${{ env.REGION }} \
+            --memory=1Gi \
+            --timeout=540s \
+            --max-instances=10 \
+            --min-instances=0 \
+            --set-env-vars="GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }},GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }},DEDUP_JOB_CREATED_TOPIC=dedup-job-created,VERTEX_AI_LOCATION=${{ env.REGION }},VERTEX_AI_MODEL=gemini-2.5-pro,NEWS_DATA_ROOT_PREFIX=news_data/,BATCH_PROCESSING_FOLDER=batch_processing/,BATCH_RESULTS_RAW_FOLDER=batch_results_raw/,BATCH_RESULTS_MERGED_FOLDER=batch_results_merged/,DEDUP_RESULTS_FOLDER=dedup_results/"
+      
+      - name: Verify deployment
+        run: |
+          gcloud functions describe ${{ env.FUNCTION_NAME }} \
+            --region=${{ env.REGION }} \
+            --gen2 \
+            --format="table(name,state,updateTime)"
+      
+      - name: Output function details
+        run: |
+          echo "Function deployed successfully!"
+          echo "Name: ${{ env.FUNCTION_NAME }}"
+          echo "Region: ${{ env.REGION }}"
+          echo "Trigger: GCS object finalization on bucket=${{ env.GCS_BUCKET_NAME }}"
+          echo "Pattern: news_data/batch_processing/*/batch_results_raw/*_predictions.jsonl"
+          echo "Runtime: Python 3.12"
+          echo "Memory: 1Gi"
+          echo "Timeout: 540s"
+          echo ""
+          echo "The function will automatically trigger when Vertex AI batch jobs complete."
+          echo "Published messages will be sent to: dedup-job-created topic"
