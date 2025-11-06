@@ -48,15 +48,20 @@ jobs:
           name: ${{ env.FUNCTION_NAME }}
           runtime: python312
           region: ${{ env.REGION }}
-          source_dir: ./result_merger_function
+          source_dir: result_merger_function
           entry_point: merge_results
-          event_trigger_type: google.cloud.storage.object.v1.finalized
+          event_trigger_type: google.storage.object.finalize
           event_trigger_location: ${{ env.TRIGGER_LOCATION }}
-          event_trigger_filters: bucket=${{ env.GCS_BUCKET_NAME }}
-          memory: 1024Mi
+          event_trigger_filters: |
+            bucket=${{ env.GCS_BUCKET_NAME }}
+            object=PATTERN:news_data/batch_processing/*/batch_results_raw/*_predictions.jsonl
+          memory: 1Gi
+          cpu: 1
+          service_timeout: 540
           max_instance_count: 10
           min_instance_count: 0
-          environment_variables: |-
+          max_instance_request_concurrency: 1
+          environment_variables: |
             GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}
             GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }}
             DEDUP_JOB_CREATED_TOPIC=dedup-job-created
@@ -67,15 +72,7 @@ jobs:
             BATCH_RESULTS_RAW_FOLDER=batch_results_raw/
             BATCH_RESULTS_MERGED_FOLDER=batch_results_merged/
             DEDUP_RESULTS_FOLDER=dedup_results/
-      
-      - name: Update function with path pattern filter
-        run: |
-          gcloud functions deploy ${{ env.FUNCTION_NAME }} \
-            --gen2 \
-            --region=${{ env.REGION }} \
-            --trigger-location=${{ env.TRIGGER_LOCATION }} \
-            --trigger-event-filters-path-pattern="object=news_data/batch_processing/*/batch_results_raw/*_predictions.jsonl" \
-            --timeout=540s
+          service_account: ${{ env.SERVICE_ACCOUNT }}
       
       - name: Output function details
         run: |
