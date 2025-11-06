@@ -73,6 +73,7 @@ jobs:
           gcloud functions deploy ${{ env.FUNCTION_NAME }} \
             --gen2 \
             --region=${{ env.REGION }} \
+            --trigger-location=${{ env.TRIGGER_LOCATION }} \
             --trigger-event-filters-path-pattern="object=news_data/batch_processing/*/batch_results_raw/*_predictions.jsonl" \
             --timeout=540s
       
