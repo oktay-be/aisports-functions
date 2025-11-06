@@ -12,8 +12,6 @@ on:
 env:
   PROJECT_ID: 'gen-lang-client-0306766464'
   REGION: 'us-central1'
-  WORKLOAD_IDENTITY_PROVIDER: 'projects/306766464/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
-  SERVICE_ACCOUNT: 'github-actions-sa@gen-lang-client-0306766464.iam.gserviceaccount.com'
   FUNCTION_NAME: 'result-merger-function'
   GCS_BUCKET_NAME: 'aisports-scraping'
 
@@ -32,8 +30,9 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ env.SERVICE_ACCOUNT }}
+          workload_identity_provider: "projects/30106847072/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider"
+          service_account: "svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com"
+          export_environment_variables: true
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
