@@ -48,7 +48,7 @@ jobs:
           name: ${{ env.FUNCTION_NAME }}
           runtime: python312
           region: ${{ env.REGION }}
-          source_dir: result_merger_function
+          source_dir: ./result_merger_function
           entry_point: merge_results
           event_trigger_type: google.cloud.storage.object.v1.finalized
           event_trigger_location: ${{ env.TRIGGER_LOCATION }}
