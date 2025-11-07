@@ -399,7 +399,7 @@ Return the deduplicated articles in the standard format without losing any uniqu
                                     {
                                         "fileData": {
                                             "fileUri": gcs_uri,
-                                            "mimeType": "application/json"
+                                            "mimeType": "text/plain"
                                         }
                                     }
                                 ]
