@@ -550,7 +550,7 @@ async def _process_merge_request(file_data: dict):
         if len(path_parts) - raw_idx < 3:
             logger.info(f"Skipping file - not in expected subdirectory structure: {name}")
             return
-    except (ValueError, IndexError):
+    except ValueError:
         logger.info(f"Skipping file - unexpected path structure: {name}")
         return
     
