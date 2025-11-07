@@ -531,13 +531,27 @@ async def _process_merge_request(file_data: dict):
     gcs_uri = f"gs://{bucket}/{name}"
     logger.info(f"Processing prediction file: {gcs_uri}")
     
-    # Only process prediction files from batch_results_raw folder
-    if not name.endswith('_predictions.jsonl'):
-        logger.info(f"Skipping non-prediction file: {name}")
+    # Only process prediction files from batch_results_raw folder with correct structure
+    # Expected pattern: news_data/batch_processing/*/batch_results_raw/*/predictions.jsonl
+    if not name.endswith('/predictions.jsonl'):
+        logger.info(f"Skipping file - doesn't end with '/predictions.jsonl': {name}")
         return
     
     if 'batch_results_raw' not in name:
         logger.info(f"Skipping non-raw batch results file: {name}")
+        return
+    
+    # Verify the file is in a subdirectory under batch_results_raw (not directly in it)
+    # Split path and check structure
+    path_parts = name.split('/')
+    try:
+        raw_idx = path_parts.index('batch_results_raw')
+        # Should have at least 2 more levels: batch_id/prediction-dir/predictions.jsonl
+        if len(path_parts) - raw_idx < 3:
+            logger.info(f"Skipping file - not in expected subdirectory structure: {name}")
+            return
+    except (ValueError, IndexError):
+        logger.info(f"Skipping file - unexpected path structure: {name}")
         return
     
     try:
