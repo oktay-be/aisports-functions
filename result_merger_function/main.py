@@ -532,7 +532,7 @@ async def _process_merge_request(file_data: dict):
     logger.info(f"Processing prediction file: {gcs_uri}")
     
     # Only process prediction files from batch_results_raw folder
-    if not name.endswith('_predictions.jsonl'):
+    if not name.endswith('predictions.jsonl'):
         logger.info(f"Skipping non-prediction file: {name}")
         return
     
