@@ -54,7 +54,7 @@ jobs:
           event_trigger_location: ${{ env.TRIGGER_LOCATION }}
           event_trigger_filters: |
             bucket=${{ env.GCS_BUCKET_NAME }}
-            object=PATTERN:news_data/batch_processing/*/batch_results_raw/*_predictions.jsonl
+          event_trigger_event_filters_path_pattern: news_data/batch_processing/*/batch_results_raw/*_predictions.jsonl
           memory: 1Gi
           cpu: 1
           service_timeout: 540
