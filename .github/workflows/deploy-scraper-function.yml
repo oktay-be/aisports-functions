@@ -42,10 +42,10 @@ jobs:
         entry_point: scrape_and_store
         source_dir: scraper_function
         event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
-        event_trigger_pubsub_topic: projects/${{ vars.GCP_PROJECT_ID }}/topics/${{ vars.SCRAPING_REQUESTS_TOPIC }}
+        event_trigger_pubsub_topic: projects/${{ vars.GOOGLE_CLOUD_PROJECT }}/topics/${{ vars.SCRAPING_REQUESTS_TOPIC }}
         region: ${{ vars.REGION }}
         environment_variables: |
-          GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT_ID }}
+          GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
           GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
           SESSION_DATA_CREATED_TOPIC=${{ vars.SESSION_DATA_CREATED_TOPIC }}
           NEWS_DATA_ROOT_PREFIX=${{ vars.NEWS_DATA_ROOT_PREFIX }}

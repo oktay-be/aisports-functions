@@ -35,7 +35,7 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: ${{ vars.GCP_PROJECT_ID }}
+          project_id: ${{ vars.GOOGLE_CLOUD_PROJECT }}
       
       - name: Deploy Result Merger Function
         uses: google-github-actions/deploy-cloud-functions@v3
@@ -57,7 +57,7 @@ jobs:
           min_instance_count: 0
           max_instance_request_concurrency: 1
           environment_variables: |
-            GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT_ID }}
+            GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
             GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
             DEDUP_JOB_CREATED_TOPIC=${{ vars.DEDUP_JOB_CREATED_TOPIC }}
             VERTEX_AI_LOCATION=${{ vars.VERTEX_AI_LOCATION }}

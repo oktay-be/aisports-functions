@@ -42,10 +42,10 @@ jobs:
         entry_point: build_batch
         source_dir: batch_builder_function
         event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
-        event_trigger_pubsub_topic: projects/${{ vars.GCP_PROJECT_ID }}/topics/${{ vars.SESSION_DATA_CREATED_TOPIC }}
+        event_trigger_pubsub_topic: projects/${{ vars.GOOGLE_CLOUD_PROJECT }}/topics/${{ vars.SESSION_DATA_CREATED_TOPIC }}
         region: ${{ vars.REGION }}
         environment_variables: |
-          GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT_ID }}
+          GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
           GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
           SESSION_DATA_CREATED_TOPIC=${{ vars.SESSION_DATA_CREATED_TOPIC }}
           BATCH_REQUEST_CREATED_TOPIC=${{ vars.BATCH_REQUEST_CREATED_TOPIC }}
