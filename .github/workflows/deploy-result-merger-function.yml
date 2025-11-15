@@ -10,13 +10,8 @@ on:
   workflow_dispatch:
 
 env:
-  PROJECT_ID: 'gen-lang-client-0306766464'
-  REGION: 'us-central1'
   TRIGGER_LOCATION: 'us'  # Must match GCS bucket location
-  WORKLOAD_IDENTITY_PROVIDER: 'projects/30106847072/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
-  SERVICE_ACCOUNT: 'svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com'
   FUNCTION_NAME: 'result-merger-function'
-  GCS_BUCKET_NAME: 'aisports-scraping'
 
 jobs:
   deploy:
@@ -33,27 +28,27 @@ jobs:
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ env.SERVICE_ACCOUNT }}
+          workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ vars.WIF_POOL_ID }}/providers/${{ vars.WIF_PROVIDER_ID }}'
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
           export_environment_variables: true
       
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
         with:
-          project_id: ${{ env.PROJECT_ID }}
+          project_id: ${{ vars.GCP_PROJECT_ID }}
       
       - name: Deploy Result Merger Function
         uses: google-github-actions/deploy-cloud-functions@v3
         with:
           name: ${{ env.FUNCTION_NAME }}
           runtime: python312
-          region: ${{ env.REGION }}
+          region: ${{ vars.REGION }}
           source_dir: ./result_merger_function
           entry_point: merge_results
           event_trigger_type: google.cloud.storage.object.v1.finalized
           event_trigger_location: ${{ env.TRIGGER_LOCATION }}
           event_trigger_filters: |
-            bucket=${{ env.GCS_BUCKET_NAME }}
+            bucket=${{ vars.GCS_BUCKET_NAME }}
           event_trigger_event_filters_path_pattern: news_data/batch_processing/*/batch_results_raw/*/predictions.jsonl
           memory: 1Gi
           cpu: 1
@@ -62,28 +57,28 @@ jobs:
           min_instance_count: 0
           max_instance_request_concurrency: 1
           environment_variables: |
-            GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}
-            GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }}
-            DEDUP_JOB_CREATED_TOPIC=dedup-job-created
-            VERTEX_AI_LOCATION=${{ env.REGION }}
-            VERTEX_AI_MODEL=gemini-2.5-pro
-            NEWS_DATA_ROOT_PREFIX=news_data/
-            BATCH_PROCESSING_FOLDER=batch_processing/
-            BATCH_RESULTS_RAW_FOLDER=batch_results_raw/
-            BATCH_RESULTS_MERGED_FOLDER=batch_results_merged/
-            DEDUP_RESULTS_FOLDER=dedup_results/
-          service_account: ${{ env.SERVICE_ACCOUNT }}
+            GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT_ID }}
+            GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
+            DEDUP_JOB_CREATED_TOPIC=${{ vars.DEDUP_JOB_CREATED_TOPIC }}
+            VERTEX_AI_LOCATION=${{ vars.VERTEX_AI_LOCATION }}
+            VERTEX_AI_MODEL=${{ vars.VERTEX_AI_MODEL }}
+            NEWS_DATA_ROOT_PREFIX=${{ vars.NEWS_DATA_ROOT_PREFIX }}
+            BATCH_PROCESSING_FOLDER=${{ vars.BATCH_PROCESSING_FOLDER }}
+            BATCH_RESULTS_RAW_FOLDER=${{ vars.BATCH_RESULTS_RAW_FOLDER }}
+            BATCH_RESULTS_MERGED_FOLDER=${{ vars.BATCH_RESULTS_MERGED_FOLDER }}
+            DEDUP_RESULTS_FOLDER=${{ vars.DEDUP_RESULTS_FOLDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
       
       - name: Output function details
         run: |
           echo "Function deployed successfully!"
           echo "Name: ${{ env.FUNCTION_NAME }}"
-          echo "Region: ${{ env.REGION }}"
-          echo "Trigger: GCS object finalization on bucket=${{ env.GCS_BUCKET_NAME }}"
+          echo "Region: ${{ vars.REGION }}"
+          echo "Trigger: GCS object finalization on bucket=${{ vars.GCS_BUCKET_NAME }}"
           echo "Pattern: news_data/batch_processing/*/batch_results_raw/*_predictions.jsonl"
           echo "Runtime: Python 3.12"
           echo "Memory: 1Gi"
           echo "Timeout: 540s"
           echo ""
           echo "The function will automatically trigger when Vertex AI batch jobs complete."
-          echo "Published messages will be sent to: dedup-job-created topic"
+          echo "Published messages will be sent to: ${{ vars.DEDUP_JOB_CREATED_TOPIC }} topic"

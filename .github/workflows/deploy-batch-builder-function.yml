@@ -24,8 +24,8 @@ jobs:
     - name: Authenticate to Google Cloud (Workload Identity Federation)
       uses: google-github-actions/auth@v2
       with:
-        workload_identity_provider: "projects/30106847072/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider"
-        service_account: "svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com"
+        workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ vars.WIF_POOL_ID }}/providers/${{ vars.WIF_PROVIDER_ID }}'
+        service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
         export_environment_variables: true
 
     - name: Deploy Cloud Function
@@ -42,17 +42,17 @@ jobs:
         entry_point: build_batch
         source_dir: batch_builder_function
         event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
-        event_trigger_pubsub_topic: projects/gen-lang-client-0306766464/topics/session-data-created
-        region: us-central1
+        event_trigger_pubsub_topic: projects/${{ vars.GCP_PROJECT_ID }}/topics/${{ vars.SESSION_DATA_CREATED_TOPIC }}
+        region: ${{ vars.REGION }}
         environment_variables: |
-          GOOGLE_CLOUD_PROJECT=gen-lang-client-0306766464
-          GCS_BUCKET_NAME=aisports-scraping
-          SESSION_DATA_CREATED_TOPIC=session-data-created
-          BATCH_REQUEST_CREATED_TOPIC=batch-request-created
-          NEWS_DATA_ROOT_PREFIX=news_data/
+          GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT_ID }}
+          GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
+          SESSION_DATA_CREATED_TOPIC=${{ vars.SESSION_DATA_CREATED_TOPIC }}
+          BATCH_REQUEST_CREATED_TOPIC=${{ vars.BATCH_REQUEST_CREATED_TOPIC }}
+          NEWS_DATA_ROOT_PREFIX=${{ vars.NEWS_DATA_ROOT_PREFIX }}
           STRUCTURED_OUTPUT=true
-          BATCH_PROCESSING_FOLDER=batch_processing/
-          VERTEX_AI_LOCATION=us-central1
-          VERTEX_AI_MODEL=gemini-2.5-pro
-          ENVIRONMENT=development
-        service_account: svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com
+          BATCH_PROCESSING_FOLDER=${{ vars.BATCH_PROCESSING_FOLDER }}
+          VERTEX_AI_LOCATION=${{ vars.VERTEX_AI_LOCATION }}
+          VERTEX_AI_MODEL=${{ vars.VERTEX_AI_MODEL }}
+          ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
+        service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
