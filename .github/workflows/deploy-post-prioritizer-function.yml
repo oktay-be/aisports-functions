@@ -1,0 +1,86 @@
+name: Deploy Post Prioritizer Function
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'post_prioritizer_function/**'
+      - '.github/workflows/deploy-post-prioritizer-function.yml'
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: 'gen-lang-client-0306766464'
+  REGION: 'us-central1'
+  TRIGGER_LOCATION: 'us'  # Must match GCS bucket location
+  WORKLOAD_IDENTITY_PROVIDER: 'projects/30106847072/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider'
+  SERVICE_ACCOUNT: 'svc-account-aisports@gen-lang-client-0306766464.iam.gserviceaccount.com'
+  FUNCTION_NAME: 'post-prioritizer-function'
+  GCS_BUCKET_NAME: 'aisports-scraping'
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+          export_environment_variables: true
+      
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ env.PROJECT_ID }}
+      
+      - name: Deploy Post Prioritizer Function
+        uses: google-github-actions/deploy-cloud-functions@v3
+        with:
+          name: ${{ env.FUNCTION_NAME }}
+          runtime: python312
+          region: ${{ env.REGION }}
+          source_dir: ./post_prioritizer_function
+          entry_point: post_prioritizer_function
+          event_trigger_type: google.cloud.storage.object.v1.finalized
+          event_trigger_location: ${{ env.TRIGGER_LOCATION }}
+          event_trigger_filters: |
+            bucket=${{ env.GCS_BUCKET_NAME }}
+          event_trigger_event_filters_path_pattern: news_data/batch_processing/*/dedup_results/*/prediction-model-*/predictions.jsonl
+          memory: 512Mi
+          cpu: 1
+          service_timeout: 300
+          max_instance_count: 5
+          min_instance_count: 0
+          max_instance_request_concurrency: 1
+          environment_variables: |
+            GOOGLE_CLOUD_PROJECT=${{ env.PROJECT_ID }}
+            GCS_BUCKET_NAME=${{ env.GCS_BUCKET_NAME }}
+            NEWS_DATA_ROOT_PREFIX=news_data/
+            BATCH_PROCESSING_FOLDER=batch_processing/
+            DEDUP_RESULTS_FOLDER=dedup_results/
+            PRIORITIZED_POSTS_FOLDER=prioritized_posts/
+            NUM_TOP_POSTS=10
+          service_account: ${{ env.SERVICE_ACCOUNT }}
+      
+      - name: Output function details
+        run: |
+          echo "Function deployed successfully!"
+          echo "Name: ${{ env.FUNCTION_NAME }}"
+          echo "Region: ${{ env.REGION }}"
+          echo "Trigger: GCS object finalization on bucket=${{ env.GCS_BUCKET_NAME }}"
+          echo "Pattern: news_data/batch_processing/*/dedup_results/*/prediction-model-*/predictions.jsonl"
+          echo "Runtime: Python 3.12"
+          echo "Memory: 512Mi"
+          echo "Timeout: 300s"
+          echo ""
+          echo "The function will automatically trigger when deduplication jobs complete."
+          echo "Prioritized posts will be saved to: prioritized_posts/ folder"
