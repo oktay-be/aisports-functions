@@ -2,6 +2,8 @@
 
 Cloud Function that processes deduplicated prediction results and prioritizes posts based on content categories and sport type.
 
+This function is part of the AI Sports Functions pipeline and implements intelligent prioritization rules for sports news articles.
+
 ## Overview
 
 This function is triggered when Vertex AI deduplication jobs complete and write `predictions.jsonl` files to the `dedup_results/` folder in GCS. It downloads the predictions, extracts articles, applies prioritization logic, and outputs the top N posts.
