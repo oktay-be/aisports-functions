@@ -273,7 +273,7 @@ class ResultMerger:
             logger.error(f"Error in pandas analysis: {e}")
             return merged_data
 
-    def upload_merged_data(self, merged_by_source: Dict[str, Any], batch_id: str, run_id: str, year_month: str, date: str) -> Dict[str, str]:
+    def upload_merged_data(self, merged_by_source: Dict[str, Any], batch_id: str, run_id: str, year_month: str, date_str: str) -> Dict[str, str]:
         """
         Upload merged datasets to GCS.
         
@@ -282,7 +282,7 @@ class ResultMerger:
             batch_id: Unique batch identifier
             run_id: Pipeline run identifier
             year_month: Year-month string (e.g., "2025-11") extracted from input path
-            date: Full date string (e.g., "2025-11-19") extracted from input path
+            date_str: Date string (e.g., "2025-11-19") extracted from input path
             
         Returns:
             Dictionary mapping source to GCS URI
@@ -290,13 +290,12 @@ class ResultMerger:
         uploaded_files = {}
         
         try:
-            
             for source_name, dataset in merged_by_source.items():
                 # Analyze with pandas first
                 dataset = self.analyze_with_pandas(dataset)
                 
                 # Create GCS path - store in stage2_deduplication/input_merged_data
-                gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{year_month}/{date}/{run_id}/stage2_deduplication/input_merged_data/merged_{source_name}.json"
+                gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{year_month}/{date_str}/{run_id}/stage2_deduplication/input_merged_data/merged_{source_name}.json"
                 
                 bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
                 blob = bucket.blob(gcs_blob_name)
@@ -439,7 +438,7 @@ Return the deduplicated articles in the standard format without losing any uniqu
             logger.error(f"Error creating dedup batch request: {e}")
             return None
 
-    def upload_dedup_request(self, local_jsonl_path: str, batch_id: str, run_id: str, year_month: str, date: str) -> str:
+    def upload_dedup_request(self, local_jsonl_path: str, batch_id: str, run_id: str, year_month: str, date_str: str) -> str:
         """
         Upload the dedup request JSONL file to GCS.
         
@@ -448,14 +447,14 @@ Return the deduplicated articles in the standard format without losing any uniqu
             batch_id: Unique batch identifier
             run_id: Pipeline run identifier
             year_month: Year-month string (e.g., "2025-11") extracted from input path
-            date: Full date string (e.g., "2025-11-19") extracted from input path
+            date_str: Date string (e.g., "2025-11-19") extracted from input path
             
         Returns:
             GCS URI of the uploaded file
         """
         try:
             # Path: .../{run_id}/stage2_deduplication/requests/request.jsonl
-            gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{year_month}/{date}/{run_id}/stage2_deduplication/requests/request.jsonl"
+            gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{year_month}/{date_str}/{run_id}/stage2_deduplication/requests/request.jsonl"
             
             bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
             blob = bucket.blob(gcs_blob_name)
@@ -474,7 +473,7 @@ Return the deduplicated articles in the standard format without losing any uniqu
             logger.error(f"Error uploading dedup request: {e}")
             return None
 
-    def submit_dedup_batch_job(self, batch_request_gcs_uri: str, batch_id: str, run_id: str, year_month: str, date: str) -> tuple:
+    def submit_dedup_batch_job(self, batch_request_gcs_uri: str, batch_id: str, run_id: str, year_month: str, date_str: str) -> tuple:
         """
         Submit a deduplication batch job to Vertex AI.
         
@@ -483,14 +482,14 @@ Return the deduplicated articles in the standard format without losing any uniqu
             batch_id: Unique batch identifier
             run_id: Pipeline run identifier
             year_month: Year-month string (e.g., "2025-11") extracted from input path
-            date: Full date string (e.g., "2025-11-19") extracted from input path
+            date_str: Date string (e.g., "2025-11-19") extracted from input path
             
         Returns:
             Tuple of (job_name, output_uri) if successful, (None, None) otherwise
         """
         try:
             # Path: .../{run_id}/stage2_deduplication/results/
-            output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{year_month}/{date}/{run_id}/stage2_deduplication/results/"
+            output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{year_month}/{date_str}/{run_id}/stage2_deduplication/results/"
             
             # Create batch job configuration
             batch_config = CreateBatchJobConfig(dest=output_uri)
@@ -549,11 +548,11 @@ async def _process_merge_request(file_data: dict):
         logger.info(f"Skipping file - not in stage1_extraction/results: {name}")
         return
     
-    # Extract run_id, year_month, and date from path
+    # Extract run_id, year-month, and date from path
     # Path: news_data/batch_processing/2025-11/2025-11-19/run_19-20-56/stage1_extraction/results/...
     run_id = None
     year_month = None
-    date = None
+    date_str = None
     parts = name.split('/')
     
     # Find batch_processing index to extract dates
@@ -561,38 +560,27 @@ async def _process_merge_request(file_data: dict):
         batch_idx = parts.index('batch_processing')
         if len(parts) > batch_idx + 2:
             year_month = parts[batch_idx + 1]  # e.g., "2025-11"
-            date = parts[batch_idx + 2]  # e.g., "2025-11-19"
+            date_str = parts[batch_idx + 2]    # e.g., "2025-11-19"
     except (ValueError, IndexError):
-        logger.warning(f"Could not extract date from path: {name}")
+        pass
     
     # Extract run_id
     for part in parts:
         if part.startswith('run_'):
             run_id = part
             break
-    
-    # Extract year_month and date from path structure
-    # Expected: news_data/batch_processing/{year_month}/{date}/{run_id}/...
-    try:
-        batch_processing_idx = parts.index('batch_processing')
-        if len(parts) > batch_processing_idx + 2:
-            year_month = parts[batch_processing_idx + 1]  # e.g., "2025-11"
-            date = parts[batch_processing_idx + 2]  # e.g., "2025-11-19"
-    except (ValueError, IndexError):
-        logger.warning(f"Could not extract year_month/date from path: {name}")
-        
-    # Fallback to current time if extraction failed
+            
+    # Fallback to current date if extraction fails
     if not run_id:
         logger.warning(f"Could not extract run_id from path: {name}. Generating new one.")
         run_id = f"run_{datetime.now(timezone.utc).strftime('%H-%M-%S')}"
     
-    # Fallback to current date if not found in path
-    if not year_month or not date:
-        logger.warning(f"Using current date as fallback")
+    if not year_month or not date_str:
+        logger.warning(f"Could not extract date from path: {name}. Using current date.")
         year_month = datetime.now(timezone.utc).strftime("%Y-%m")
-        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         
-    logger.info(f"Using Run ID: {run_id}, Year-Month: {year_month}, Date: {date}")
+    logger.info(f"Using Run ID: {run_id}, Year-Month: {year_month}, Date: {date_str}")
     
     try:
         # Initialize result merger
@@ -624,7 +612,7 @@ async def _process_merge_request(file_data: dict):
         
         # Step 3: Upload merged data to GCS
         logger.info("Step 3: Uploading merged data...")
-        merged_files = merger.upload_merged_data(merged_by_source, batch_id, run_id, year_month, date)
+        merged_files = merger.upload_merged_data(merged_by_source, batch_id, run_id, year_month, date_str)
         if not merged_files:
             logger.error("Failed to upload merged data")
             return
@@ -646,14 +634,14 @@ async def _process_merge_request(file_data: dict):
         
         # Step 6: Upload dedup request to GCS
         logger.info("Step 6: Uploading dedup request...")
-        dedup_request_uri = merger.upload_dedup_request(local_jsonl_path, batch_id, run_id, year_month, date)
+        dedup_request_uri = merger.upload_dedup_request(local_jsonl_path, batch_id, run_id, year_month, date_str)
         if not dedup_request_uri:
             logger.error("Failed to upload dedup request")
             return
         
         # Step 7: Submit dedup batch job
         logger.info("Step 7: Submitting dedup batch job...")
-        job_name, output_uri = merger.submit_dedup_batch_job(dedup_request_uri, batch_id, run_id, year_month, date)
+        job_name, output_uri = merger.submit_dedup_batch_job(dedup_request_uri, batch_id, run_id, year_month, date_str)
         if not job_name:
             logger.error("Failed to submit dedup batch job")
             return
