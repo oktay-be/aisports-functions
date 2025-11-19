@@ -547,8 +547,8 @@ async def _process_merge_request(file_data: dict):
         logger.info(f"Skipping file - doesn't end with '/predictions.jsonl': {name}")
         return
     
-    if 'batch_results_raw' not in name and 'stage1_extraction/results' not in name:
-        logger.info(f"Skipping non-raw batch results file: {name}")
+    if 'stage1_extraction/results' not in name:
+        logger.info(f"Skipping file - not in stage1_extraction/results: {name}")
         return
     
     # Extract run_id from path
