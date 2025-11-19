@@ -152,8 +152,8 @@ async def _process_scraping_request(message_data: dict):
             logger.info(f"  - Articles count: {articles_count}")
             
             # Construct GCS path based on new structure
-            current_year_month = datetime.now(timezone.utc).strftime("%Y-%m")
-            current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            current_year_month = start_time.strftime("%Y-%m")
+            current_date = start_time.strftime("%Y-%m-%d")
             
             # New structure: news_data/batch_processing/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/inputs/
             gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}batch_processing/{current_year_month}/{current_date}/{run_id}/stage1_extraction/inputs/session_data_{source_domain}_{session_id}.json"
