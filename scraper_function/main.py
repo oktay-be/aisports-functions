@@ -83,6 +83,10 @@ async def _process_scraping_request(message_data: dict):
         start_time = datetime.now(timezone.utc)
         logger.info(f"Scraping started at: {start_time.isoformat()}")
         
+        # Generate Run ID for this execution
+        run_id = f"run_{start_time.strftime('%H-%M-%S')}"
+        logger.info(f"Generated Run ID: {run_id}")
+        
         # Perform scraping with enhanced logging
         logger.info("Starting scraping operation...")
         logger.info("=== JOURNALIST SCRAPING BEGINS ===")
@@ -148,17 +152,20 @@ async def _process_scraping_request(message_data: dict):
             logger.info(f"  - Articles count: {articles_count}")
             
             # Construct GCS path based on new structure
-            current_date_path = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-              # Example: news_data/sources/bbc/2025-07-19/articles/session_data_bbc_com_uk_001.json
-            gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{source_domain}/{current_date_path}/{ARTICLES_SUBFOLDER}session_data_{source_domain}_{session_id}.json"
+            current_year_month = start_time.strftime("%Y-%m")
+            current_date = start_time.strftime("%Y-%m-%d")
+            
+            # New structure: news_data/batch_processing/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/inputs/
+            gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}batch_processing/{current_year_month}/{current_date}/{run_id}/stage1_extraction/inputs/session_data_{source_domain}_{session_id}.json"
 
             if ENVIRONMENT == 'local':                
                 # Create success message for batch processing
                 success_message = {
                     "status": "success",
+                    "run_id": run_id,
                     "source_domain": source_domain,
                     "session_id": session_id,
-                    "date_path": current_date_path,
+                    "date_path": current_date,
                     "articles_count": articles_count,
                     "keywords": keywords,
                     "scrape_depth": scrape_depth,
@@ -188,10 +195,11 @@ async def _process_scraping_request(message_data: dict):
                 # Create success message for batch processing
                 success_message = {
                     "status": "success",
+                    "run_id": run_id,
                     "gcs_path": f"gs://{GCS_BUCKET_NAME}/{gcs_object_path}",
                     "source_domain": source_domain,
                     "session_id": session_id,
-                    "date_path": current_date_path,
+                    "date_path": current_date,
                     "articles_count": articles_count,
                     "keywords": keywords,
                     "scrape_depth": scrape_depth,
@@ -215,6 +223,7 @@ async def _process_scraping_request(message_data: dict):
                     # Create batch message containing all success messages
                     batch_message = {
                         "status": "batch_success",
+                        "run_id": run_id,
                         "batch_size": len(success_messages),
                         "success_messages": success_messages,
                         "batch_processed_at": datetime.now(timezone.utc).isoformat(),
