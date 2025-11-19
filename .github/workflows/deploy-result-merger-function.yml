@@ -49,7 +49,7 @@ jobs:
           event_trigger_location: ${{ env.TRIGGER_LOCATION }}
           event_trigger_filters: |
             bucket=${{ vars.GCS_BUCKET_NAME }}
-          event_trigger_event_filters_path_pattern: news_data/batch_processing/*/batch_results_raw/*/predictions.jsonl
+          event_trigger_event_filters_path_pattern: news_data/batch_processing/**/stage1_extraction/results/predictions.jsonl
           memory: 1Gi
           cpu: 1
           service_timeout: 540
@@ -75,7 +75,7 @@ jobs:
           echo "Name: ${{ env.FUNCTION_NAME }}"
           echo "Region: ${{ vars.REGION }}"
           echo "Trigger: GCS object finalization on bucket=${{ vars.GCS_BUCKET_NAME }}"
-          echo "Pattern: news_data/batch_processing/*/batch_results_raw/*_predictions.jsonl"
+          echo "Pattern: news_data/batch_processing/**/stage1_extraction/results/predictions.jsonl"
           echo "Runtime: Python 3.12"
           echo "Memory: 1Gi"
           echo "Timeout: 540s"
