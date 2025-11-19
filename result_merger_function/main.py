@@ -545,8 +545,8 @@ async def _process_merge_request(file_data: dict):
         logger.info(f"Skipping file - doesn't end with '/predictions.jsonl': {name}")
         return
     
-    if 'batch_results_raw' not in name and 'stage1_extraction/results' not in name:
-        logger.info(f"Skipping non-raw batch results file: {name}")
+    if 'stage1_extraction/results' not in name:
+        logger.info(f"Skipping file - not in stage1_extraction/results: {name}")
         return
     
     # Extract run_id, year_month, and date from path
@@ -570,7 +570,18 @@ async def _process_merge_request(file_data: dict):
         if part.startswith('run_'):
             run_id = part
             break
-            
+    
+    # Extract year_month and date from path structure
+    # Expected: news_data/batch_processing/{year_month}/{date}/{run_id}/...
+    try:
+        batch_processing_idx = parts.index('batch_processing')
+        if len(parts) > batch_processing_idx + 2:
+            year_month = parts[batch_processing_idx + 1]  # e.g., "2025-11"
+            date = parts[batch_processing_idx + 2]  # e.g., "2025-11-19"
+    except (ValueError, IndexError):
+        logger.warning(f"Could not extract year_month/date from path: {name}")
+        
+    # Fallback to current time if extraction failed
     if not run_id:
         logger.warning(f"Could not extract run_id from path: {name}. Generating new one.")
         run_id = f"run_{datetime.now(timezone.utc).strftime('%H-%M-%S')}"
