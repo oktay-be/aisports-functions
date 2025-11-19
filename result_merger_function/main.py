@@ -281,8 +281,8 @@ class ResultMerger:
             merged_by_source: Dictionary of merged datasets per source
             batch_id: Unique batch identifier
             run_id: Pipeline run identifier
-            year_month: Year-month extracted from input file path (YYYY-MM)
-            date: Date extracted from input file path (YYYY-MM-DD)
+            year_month: Year-month string (e.g., "2025-11") extracted from input path
+            date: Full date string (e.g., "2025-11-19") extracted from input path
             
         Returns:
             Dictionary mapping source to GCS URI
@@ -447,14 +447,13 @@ Return the deduplicated articles in the standard format without losing any uniqu
             local_jsonl_path: Local path to the JSONL file
             batch_id: Unique batch identifier
             run_id: Pipeline run identifier
-            year_month: Year-month extracted from input file path (YYYY-MM)
-            date: Date extracted from input file path (YYYY-MM-DD)
+            year_month: Year-month string (e.g., "2025-11") extracted from input path
+            date: Full date string (e.g., "2025-11-19") extracted from input path
             
         Returns:
             GCS URI of the uploaded file
         """
         try:
-            
             # Path: .../{run_id}/stage2_deduplication/requests/request.jsonl
             gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{year_month}/{date}/{run_id}/stage2_deduplication/requests/request.jsonl"
             
@@ -483,14 +482,13 @@ Return the deduplicated articles in the standard format without losing any uniqu
             batch_request_gcs_uri: GCS URI of the batch request file
             batch_id: Unique batch identifier
             run_id: Pipeline run identifier
-            year_month: Year-month extracted from input file path (YYYY-MM)
-            date: Date extracted from input file path (YYYY-MM-DD)
+            year_month: Year-month string (e.g., "2025-11") extracted from input path
+            date: Full date string (e.g., "2025-11-19") extracted from input path
             
         Returns:
             Tuple of (job_name, output_uri) if successful, (None, None) otherwise
         """
         try:
-            
             # Path: .../{run_id}/stage2_deduplication/results/
             output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{year_month}/{date}/{run_id}/stage2_deduplication/results/"
             
@@ -558,7 +556,16 @@ async def _process_merge_request(file_data: dict):
     date = None
     parts = name.split('/')
     
-    # Find run_id
+    # Find batch_processing index to extract dates
+    try:
+        batch_idx = parts.index('batch_processing')
+        if len(parts) > batch_idx + 2:
+            year_month = parts[batch_idx + 1]  # e.g., "2025-11"
+            date = parts[batch_idx + 2]  # e.g., "2025-11-19"
+    except (ValueError, IndexError):
+        logger.warning(f"Could not extract date from path: {name}")
+    
+    # Extract run_id
     for part in parts:
         if part.startswith('run_'):
             run_id = part
@@ -579,8 +586,9 @@ async def _process_merge_request(file_data: dict):
         logger.warning(f"Could not extract run_id from path: {name}. Generating new one.")
         run_id = f"run_{datetime.now(timezone.utc).strftime('%H-%M-%S')}"
     
+    # Fallback to current date if not found in path
     if not year_month or not date:
-        logger.warning(f"Could not extract dates from path: {name}. Using current time.")
+        logger.warning(f"Using current date as fallback")
         year_month = datetime.now(timezone.utc).strftime("%Y-%m")
         date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         
