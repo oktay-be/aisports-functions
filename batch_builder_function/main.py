@@ -4,9 +4,10 @@ import base64
 import asyncio
 import logging
 import sys
+import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import List, Dict, Any
 
 from google.cloud import pubsub_v1, storage
 from google import genai
@@ -85,55 +86,55 @@ class BatchBuilder:
                 logger.error(f"Failed to initialize Vertex AI client: {e}")
                 self.genai_client = None
 
-    def extract_date_from_source_files(self, source_files: List[str]) -> tuple:
+    def extract_path_info_from_source_files(self, source_files: List[str]) -> tuple:
         """
-        Extract year-month and date from source file paths.
+        Extract collection_id, year-month, and date from source file paths.
         
         Args:
-            source_files: List of GCS URIs
+            source_files: List of GCS file paths
             
         Returns:
-            Tuple of (year_month, date) in format ("YYYY-MM", "YYYY-MM-DD")
-            Falls back to current date if extraction fails
+            Tuple of (collection_id, year_month, date)
         """
-        import re
+        default_collection = "default"
+        default_ym = datetime.now(timezone.utc).strftime("%Y-%m")
+        default_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         
         if not source_files:
-            logger.warning("No source files provided, falling back to current date")
-            return (
-                datetime.now(timezone.utc).strftime("%Y-%m"),
-                datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            )
+            logger.warning("No source files provided, falling back to defaults")
+            return default_collection, default_ym, default_date
         
         try:
-            # Extract date from first source file path
-            # Expected pattern: .../batch_processing/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/...
+            # Extract info from first source file path
+            # Expected pattern: .../sources/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/...
             first_file = source_files[0]
             
-            # Use regex to extract the date components
+            # Use regex to extract the components
             # Supports both batch_processing and sources paths
-            pattern = r'(?:batch_processing|sources)/(\d{4}-\d{2})/(\d{4}-\d{2}-\d{2})/'
+            # Pattern matches: .../sources/tr/2025-11/2025-11-21/...
+            pattern = r'(?:batch_processing|sources)/([^/]+)/(\d{4}-\d{2})/(\d{4}-\d{2}-\d{2})/'
             match = re.search(pattern, first_file)
             
             if match:
-                year_month = match.group(1)
-                date = match.group(2)
-                logger.info(f"Extracted date from source files: {year_month}/{date}")
-                return year_month, date
+                collection_id = match.group(1)
+                year_month = match.group(2)
+                date = match.group(3)
+                logger.info(f"Extracted path info: collection={collection_id}, date={year_month}/{date}")
+                return collection_id, year_month, date
             else:
-                logger.warning(f"Could not extract date from source file path: {first_file}")
-                logger.warning("Falling back to current date")
-                return (
-                    datetime.now(timezone.utc).strftime("%Y-%m"),
-                    datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                )
+                # Try old pattern without collection_id
+                old_pattern = r'(?:batch_processing|sources)/(\d{4}-\d{2})/(\d{4}-\d{2}-\d{2})/'
+                old_match = re.search(old_pattern, first_file)
+                if old_match:
+                    logger.info(f"Matched old path pattern (no collection_id)")
+                    return default_collection, old_match.group(1), old_match.group(2)
+                    
+                logger.warning(f"Could not extract path info from: {first_file}")
+                return default_collection, default_ym, default_date
+                
         except Exception as e:
-            logger.error(f"Error extracting date from source files: {e}")
-            logger.warning("Falling back to current date")
-            return (
-                datetime.now(timezone.utc).strftime("%Y-%m"),
-                datetime.now(timezone.utc).strftime("%Y-%m-%d")
-            )
+            logger.error(f"Error extracting path info: {e}")
+            return default_collection, default_ym, default_date
 
     def load_prompt_template(self) -> str:
         """
@@ -262,10 +263,10 @@ The data contains sports news articles that need to be processed according to th
         """
         try:
             # Extract date from source files to maintain consistency
-            current_year_month, current_date = self.extract_date_from_source_files(source_files)
+            collection_id, current_year_month, current_date = self.extract_path_info_from_source_files(source_files)
             
-            # New path: news_data/batch_processing/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/requests/request.jsonl
-            gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{current_year_month}/{current_date}/{run_id}/stage1_extraction/requests/request.jsonl"
+            # New path: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/requests/request.jsonl
+            gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{current_year_month}/{current_date}/{run_id}/stage1_extraction/requests/request.jsonl"
             
             bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
             blob = bucket.blob(gcs_blob_name)
@@ -300,12 +301,10 @@ The data contains sports news articles that need to be processed according to th
         """
         try:
             # Extract date from source files to maintain consistency
-            current_year_month, current_date = self.extract_date_from_source_files(source_files)
+            collection_id, current_year_month, current_date = self.extract_path_info_from_source_files(source_files)
             
-            # New output URI: news_data/batch_processing/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/results/
-            output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{current_year_month}/{current_date}/{run_id}/stage1_extraction/results/"
-            
-            # output_uri = f"gs://multi-modal-ai-bucket/batch_results_raw/{current_date_path}/{batch_id}/"
+            # New path: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/results/
+            output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{current_year_month}/{current_date}/{run_id}/stage1_extraction/results/"
             
             # Create batch job configuration
             batch_config = CreateBatchJobConfig(dest=output_uri)
@@ -333,70 +332,54 @@ The data contains sports news articles that need to be processed according to th
             logger.error(f"Error submitting batch job: {e}")
             return None, None
 
-    def save_batch_metadata(self, batch_id: str, job_name: str, output_uri: str, 
-                           source_files: List[str], batch_message: Dict[str, Any], run_id: str) -> None:
+    def save_batch_metadata(self, batch_id: str, run_id: str, job_name: str, output_uri: str, source_files: List[str]) -> bool:
         """
-        Save batch job metadata to GCS.
+        Save metadata about the batch job to GCS.
         
         Args:
             batch_id: Unique batch identifier
-            job_name: Vertex AI batch job name
-            output_uri: GCS output URI
-            source_files: List of source GCS files
-            batch_message: Original batch message from scraper
             run_id: Pipeline run identifier
+            job_name: Vertex AI batch job name
+            output_uri: GCS URI where results will be stored
+            source_files: List of source GCS files
+            
+        Returns:
+            True if successful, False otherwise
         """
         try:
-            # Extract date from source files to maintain consistency
-            current_year_month, current_date = self.extract_date_from_source_files(source_files)
-            
-            # Metadata path: .../stage1_extraction/requests/job_metadata.json
-            metadata_path = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{current_year_month}/{current_date}/{run_id}/stage1_extraction/requests/job_metadata.json"
+            # Extract date from source files
+            collection_id, current_year_month, current_date = self.extract_path_info_from_source_files(source_files)
             
             metadata = {
                 "batch_id": batch_id,
                 "run_id": run_id,
                 "job_name": job_name,
                 "output_uri": output_uri,
-                "source_files": source_files,
                 "source_files_count": len(source_files),
-                "vertex_ai_model": VERTEX_AI_MODEL,
-                "vertex_ai_location": VERTEX_AI_LOCATION,
+                "collection_id": collection_id,
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                "status": "submitted",
-                "original_batch_message": batch_message
+                "model": VERTEX_AI_MODEL,
+                "location": VERTEX_AI_LOCATION
             }
             
-            # Also save source files manifest
-            manifest = {
-                "batch_id": batch_id,
-                "source_files": source_files,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
+            # Path: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/metadata.json
+            gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{current_year_month}/{current_date}/{run_id}/metadata.json"
             
             bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
+            blob = bucket.blob(gcs_blob_name)
             
-            # Save job metadata
-            metadata_blob = bucket.blob(metadata_path)
-            metadata_blob.upload_from_string(
-                json.dumps(metadata, indent=2, ensure_ascii=False),
+            blob.upload_from_string(
+                json.dumps(metadata, indent=2),
                 content_type='application/json'
             )
             
-            # Save source files manifest
-            manifest_path = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{current_year_month}/{current_date}/{run_id}/stage1_extraction/requests/source_files_manifest.json"
-            manifest_blob = bucket.blob(manifest_path)
-            manifest_blob.upload_from_string(
-                json.dumps(manifest, indent=2, ensure_ascii=False),
-                content_type='application/json'
-            )
-            
-            logger.info(f"Batch metadata saved to GCS: {metadata_path}")
-            logger.info(f"Source files manifest saved to GCS: {manifest_path}")
+            logger.info(f"Batch metadata saved to gs://{GCS_BUCKET_NAME}/{gcs_blob_name}")
+            return True
             
         except Exception as e:
             logger.error(f"Error saving batch metadata: {e}")
-
+            return False
+    
 
 async def _process_batch_request(message_data: dict):
     """
@@ -526,7 +509,7 @@ async def _process_batch_request(message_data: dict):
         
         # Step 5: Save batch metadata
         logger.info("Step 5: Saving batch metadata...")
-        batch_builder.save_batch_metadata(batch_id, job_name, output_uri, gcs_files, message_data, run_id)
+        batch_builder.save_batch_metadata(batch_id, run_id, job_name, output_uri, gcs_files)
         
         # Step 6: Publish batch job created message
         logger.info("Step 6: Publishing batch job created message...")

@@ -30,7 +30,8 @@ def get_test_message_payload():
         ],
         "scrape_depth": 1,
         "persist": False,
-        "log_level": "INFO"  # Test the new journalist 0.4.0 log_level parameter
+        "log_level": "INFO",  # Test the new journalist 0.4.0 log_level parameter
+        "collection_id": "tr"
     }
 
 def trigger_scraper_function():

@@ -48,9 +48,9 @@ GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 # JOURNALIST_LOG_LEVEL already defined above for logging configuration
 
-def get_processed_urls_for_date(storage_client, bucket_name, date_obj):
+def get_processed_urls_for_date(storage_client, bucket_name, date_obj, collection_id="default"):
     """
-    Retrieves a set of already processed URLs from stage2 deduplication results for the given date.
+    Retrieves a set of already processed URLs from stage2 deduplication results for the given date and collection.
     """
     processed_urls = set()
     if not storage_client:
@@ -60,8 +60,8 @@ def get_processed_urls_for_date(storage_client, bucket_name, date_obj):
         current_year_month = date_obj.strftime("%Y-%m")
         current_date = date_obj.strftime("%Y-%m-%d")
         
-        # Prefix: news_data/batch_processing/{YYYY-MM}/{YYYY-MM-DD}/
-        prefix = f"{NEWS_DATA_ROOT_PREFIX}batch_processing/{current_year_month}/{current_date}/"
+        # Prefix: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/
+        prefix = f"{NEWS_DATA_ROOT_PREFIX}batch_processing/{collection_id}/{current_year_month}/{current_date}/"
         
         logger.info(f"Checking for existing processed URLs in: {prefix}")
         
@@ -136,6 +136,7 @@ async def _process_scraping_request(message_data: dict):
     scrape_depth = message_data.get("scrape_depth", 1)  # Default to 1 if not provided
     persist = message_data.get("persist", True)  # Default to True if not provided
     log_level = message_data.get("log_level", JOURNALIST_LOG_LEVEL)  # Use payload log_level or env var
+    collection_id = message_data.get("collection_id", "default")  # Default to "default" if not provided
 
     if not urls or not keywords:
         logger.error("Missing 'urls' or 'keywords' in the request.")
@@ -206,7 +207,7 @@ async def _process_scraping_request(message_data: dict):
         # Fetch processed URLs for today to perform deduplication
         processed_urls = set()
         if ENVIRONMENT != 'local':
-            processed_urls = get_processed_urls_for_date(storage_client, GCS_BUCKET_NAME, start_time)
+            processed_urls = get_processed_urls_for_date(storage_client, GCS_BUCKET_NAME, start_time, collection_id)
 
         # Process each session
         for i, session in enumerate(source_sessions):
@@ -256,8 +257,8 @@ async def _process_scraping_request(message_data: dict):
             current_year_month = start_time.strftime("%Y-%m")
             current_date = start_time.strftime("%Y-%m-%d")
             
-            # New structure: news_data/sources/{YYYY-MM}/{YYYY-MM-DD}/{source_domain}/session_data_{source_domain}_{session_id}.json
-            gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{current_year_month}/{current_date}/{source_domain}/session_data_{source_domain}_{session_id}.json"
+            # New structure: news_data/sources/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{source_domain}/session_data_{source_domain}_{session_id}.json
+            gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{collection_id}/{current_year_month}/{current_date}/{source_domain}/session_data_{source_domain}_{session_id}.json"
 
             if ENVIRONMENT == 'local':                
                 # Create success message for batch processing
