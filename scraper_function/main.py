@@ -48,6 +48,81 @@ GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 # JOURNALIST_LOG_LEVEL already defined above for logging configuration
 
+def get_processed_urls_for_date(storage_client, bucket_name, date_obj):
+    """
+    Retrieves a set of already processed URLs from stage2 deduplication results for the given date.
+    """
+    processed_urls = set()
+    if not storage_client:
+        return processed_urls
+
+    try:
+        current_year_month = date_obj.strftime("%Y-%m")
+        current_date = date_obj.strftime("%Y-%m-%d")
+        
+        # Prefix: news_data/batch_processing/{YYYY-MM}/{YYYY-MM-DD}/
+        prefix = f"{NEWS_DATA_ROOT_PREFIX}batch_processing/{current_year_month}/{current_date}/"
+        
+        logger.info(f"Checking for existing processed URLs in: {prefix}")
+        
+        bucket = storage_client.bucket(bucket_name)
+        blobs = bucket.list_blobs(prefix=prefix)
+        
+        prediction_files = []
+        for blob in blobs:
+            # Check for stage2_deduplication/results/.../predictions.jsonl
+            if "stage2_deduplication/results" in blob.name and blob.name.endswith("predictions.jsonl"):
+                prediction_files.append(blob)
+        
+        logger.info(f"Found {len(prediction_files)} prediction files to check for duplicates")
+        
+        for blob in prediction_files:
+            try:
+                content = blob.download_as_text()
+                for line in content.splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        data = json.loads(line)
+                        # Handle Vertex AI Batch output format
+                        if 'response' in data and 'candidates' in data['response']:
+                            try:
+                                # Extract the JSON string from the response
+                                text_content = data['response']['candidates'][0]['content']['parts'][0]['text']
+                                if text_content:
+                                    inner_data = json.loads(text_content)
+                                    
+                                    # Check for processed_articles list
+                                    if 'processed_articles' in inner_data and isinstance(inner_data['processed_articles'], list):
+                                        for article in inner_data['processed_articles']:
+                                            url = article.get('original_url')
+                                            if url:
+                                                processed_urls.add(url)
+                            except (KeyError, IndexError, json.JSONDecodeError) as e:
+                                logger.warning(f"Failed to parse inner JSON from Vertex AI response: {e}")
+                                continue
+                        
+                        # Fallback for other formats or direct prediction objects
+                        else:
+                            prediction = data.get('prediction', data)
+                            
+                            # The prediction object should have original_url
+                            url = prediction.get('original_url')
+                            if url:
+                                processed_urls.add(url)
+                            
+                    except json.JSONDecodeError:
+                        continue
+            except Exception as e:
+                logger.warning(f"Error reading blob {blob.name}: {e}")
+                
+        logger.info(f"Total unique processed URLs found for today: {len(processed_urls)}")
+        
+    except Exception as e:
+        logger.error(f"Error fetching processed URLs: {e}")
+        
+    return processed_urls
+
 async def _process_scraping_request(message_data: dict):
     """
     Process a scraping request by extracting content from URLs with keywords.
@@ -128,9 +203,36 @@ async def _process_scraping_request(message_data: dict):
         # Initialize list to accumulate success messages for batch publishing
         success_messages = []
         
+        # Fetch processed URLs for today to perform deduplication
+        processed_urls = set()
+        if ENVIRONMENT != 'local':
+            processed_urls = get_processed_urls_for_date(storage_client, GCS_BUCKET_NAME, start_time)
+
         # Process each session
         for i, session in enumerate(source_sessions):
-            logger.info(f"Processing session {i+1}/{len(source_sessions)}")            # Extract domain from session or URL and make it filesystem-safe
+            logger.info(f"Processing session {i+1}/{len(source_sessions)}")
+            
+            # Deduplicate articles
+            articles = session.get("articles", [])
+            unique_articles = []
+            dropped_articles = []
+            
+            for article in articles:
+                # Check various common fields for URL
+                url = article.get("url") or article.get("link") or article.get("original_url")
+                if url and url in processed_urls:
+                    dropped_articles.append(article)
+                else:
+                    unique_articles.append(article)
+            
+            if dropped_articles:
+                logger.info(f"Dropped {len(dropped_articles)} duplicate articles for session {i+1}")
+                session["articles"] = unique_articles
+                # We do not store the dropped articles to keep the file size small
+                session["articles_count"] = len(unique_articles)
+                session["dropped_articles_count"] = len(dropped_articles)
+            
+            # Extract domain from session or URL and make it filesystem-safe
             from werkzeug.utils import secure_filename
             source_domain = session.get("source_domain", "unknown_source")
             if not source_domain or source_domain == "unknown_source":
