@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - dev
     paths:
       - 'result_merger_function/**'
       - '.github/workflows/deploy-result-merger-function.yml'
