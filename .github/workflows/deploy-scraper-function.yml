@@ -8,6 +8,8 @@ on:
     paths:
       - 'scraper_function/**'
       - 'shared_libs/**'
+      - '.github/workflows/deploy-scraper-function.yml'
+
   workflow_dispatch:
 
 permissions:

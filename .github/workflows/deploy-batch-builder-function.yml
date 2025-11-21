@@ -8,6 +8,8 @@ on:
     paths:
       - 'batch_builder_function/**'
       - 'shared_libs/**'
+      - '.github/workflows/deploy-batch-builder-function.yml'
+
   workflow_dispatch:
 
 permissions:
