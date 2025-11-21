@@ -49,7 +49,6 @@ jobs:
           GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
           SESSION_DATA_CREATED_TOPIC=${{ vars.SESSION_DATA_CREATED_TOPIC }}
           NEWS_DATA_ROOT_PREFIX=${{ vars.NEWS_DATA_ROOT_PREFIX }}
-          ARTICLES_SUBFOLDER=${{ vars.ARTICLES_SUBFOLDER }}
           JOURNALIST_LOG_LEVEL=INFO
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}

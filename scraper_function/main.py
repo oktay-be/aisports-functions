@@ -46,7 +46,6 @@ PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT', 'gen-lang-client-0306766464')
 SESSION_DATA_CREATED_TOPIC = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-data-created')
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
-ARTICLES_SUBFOLDER = os.getenv('ARTICLES_SUBFOLDER', 'articles/')
 # JOURNALIST_LOG_LEVEL already defined above for logging configuration
 
 async def _process_scraping_request(message_data: dict):
@@ -155,8 +154,8 @@ async def _process_scraping_request(message_data: dict):
             current_year_month = start_time.strftime("%Y-%m")
             current_date = start_time.strftime("%Y-%m-%d")
             
-            # New structure: news_data/batch_processing/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/inputs/
-            gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}batch_processing/{current_year_month}/{current_date}/{run_id}/stage1_extraction/inputs/session_data_{source_domain}_{session_id}.json"
+            # New structure: news_data/sources/{YYYY-MM}/{YYYY-MM-DD}/{source_domain}/session_data_{source_domain}_{session_id}.json
+            gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{current_year_month}/{current_date}/{source_domain}/session_data_{source_domain}_{session_id}.json"
 
             if ENVIRONMENT == 'local':                
                 # Create success message for batch processing

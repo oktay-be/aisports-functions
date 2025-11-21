@@ -111,7 +111,8 @@ class BatchBuilder:
             first_file = source_files[0]
             
             # Use regex to extract the date components
-            pattern = r'batch_processing/(\d{4}-\d{2})/(\d{4}-\d{2}-\d{2})/'
+            # Supports both batch_processing and sources paths
+            pattern = r'(?:batch_processing|sources)/(\d{4}-\d{2})/(\d{4}-\d{2}-\d{2})/'
             match = re.search(pattern, first_file)
             
             if match:
