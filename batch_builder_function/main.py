@@ -173,6 +173,47 @@ The data contains sports news articles that need to be processed according to th
             logger.error(f"Error loading prompt template: {e}")
             raise
     
+    def _has_articles(self, gcs_uri: str) -> bool:
+        """
+        Check if the GCS file contains any articles.
+        
+        Args:
+            gcs_uri: GCS URI of the file to check
+            
+        Returns:
+            bool: True if file has articles, False otherwise
+        """
+        try:
+            # Parse GCS URI
+            if gcs_uri.startswith("gs://"):
+                path_parts = gcs_uri.replace("gs://", "").split("/", 1)
+                bucket_name = path_parts[0]
+                blob_name = path_parts[1]
+            else:
+                logger.warning(f"Invalid GCS URI format: {gcs_uri}")
+                return True # Assume true to be safe
+            
+            bucket = self.storage_client.bucket(bucket_name)
+            blob = bucket.blob(blob_name)
+            
+            # Download content
+            content = blob.download_as_text()
+            data = json.loads(content)
+            
+            # Check for articles
+            articles = data.get("articles", [])
+            
+            if not articles:
+                logger.info(f"File {gcs_uri} has 0 articles. Skipping.")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Error checking articles in {gcs_uri}: {e}")
+            # If we can't read it, assume it has content to be safe
+            return True
+
     def create_batch_request_jsonl(self, gcs_files: List[str], prompt_template: str) -> str:
         """
         Create a JSONL file with batch requests for each GCS file.
@@ -195,6 +236,10 @@ The data contains sports news articles that need to be processed according to th
               # Create batch requests
             batch_requests = []
             for i, gcs_uri in enumerate(gcs_files):
+                # Check if file has articles before processing
+                if not self._has_articles(gcs_uri):
+                    continue
+
                 # Extract source domain for logging
                 filename = Path(gcs_uri).stem
                 source_domain = filename.replace('session_data_', '').replace('_', '.')
@@ -234,6 +279,10 @@ The data contains sports news articles that need to be processed according to th
                 batch_requests.append(request)
                 logger.info(f"Created batch request {i+1}/{len(gcs_files)} for {source_domain}")
             
+            if not batch_requests:
+                logger.warning("No valid batch requests created (all files were empty or skipped).")
+                return None
+
             # Write JSONL file
             with open(jsonl_path, 'w', encoding='utf-8') as f:
                 for request in batch_requests:
