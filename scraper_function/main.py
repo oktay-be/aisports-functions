@@ -233,6 +233,11 @@ async def _process_scraping_request(message_data: dict):
                 session["articles_count"] = len(unique_articles)
                 session["dropped_articles_count"] = len(dropped_articles)
             
+            # Check if there are any articles left after deduplication
+            if not session.get("articles"):
+                logger.warning(f"No articles found for session {i+1} (source: {session.get('source_domain', 'unknown')}) after deduplication. Skipping storage.")
+                continue
+
             # Extract domain from session or URL and make it filesystem-safe
             from werkzeug.utils import secure_filename
             source_domain = session.get("source_domain", "unknown_source")
