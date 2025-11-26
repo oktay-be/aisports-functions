@@ -50,7 +50,8 @@ NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 
 def get_processed_urls_for_date(storage_client, bucket_name, date_obj, collection_id="default"):
     """
-    Retrieves a set of already processed URLs from stage2 deduplication results for the given date and collection.
+    Retrieves a set of already processed URLs from raw source session data for the given date and collection.
+    This ensures we don't re-scrape or re-process articles that have already been collected today.
     """
     processed_urls = set()
     if not storage_client:
@@ -60,63 +61,38 @@ def get_processed_urls_for_date(storage_client, bucket_name, date_obj, collectio
         current_year_month = date_obj.strftime("%Y-%m")
         current_date = date_obj.strftime("%Y-%m-%d")
         
-        # Prefix: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/
-        prefix = f"{NEWS_DATA_ROOT_PREFIX}batch_processing/{collection_id}/{current_year_month}/{current_date}/"
+        # Prefix: news_data/sources/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/
+        prefix = f"{NEWS_DATA_ROOT_PREFIX}sources/{collection_id}/{current_year_month}/{current_date}/"
         
-        logger.info(f"Checking for existing processed URLs in: {prefix}")
+        logger.info(f"Checking for existing processed URLs in source files: {prefix}")
         
         bucket = storage_client.bucket(bucket_name)
         blobs = bucket.list_blobs(prefix=prefix)
         
-        prediction_files = []
+        source_files = []
         for blob in blobs:
-            # Check for stage2_deduplication/results/.../predictions.jsonl
-            if "stage2_deduplication/results" in blob.name and blob.name.endswith("predictions.jsonl"):
-                prediction_files.append(blob)
+            # Check for session_data_*.json files
+            if blob.name.endswith(".json") and "session_data_" in blob.name:
+                source_files.append(blob)
         
-        logger.info(f"Found {len(prediction_files)} prediction files to check for duplicates")
+        logger.info(f"Found {len(source_files)} source session files to check for duplicates")
         
-        for blob in prediction_files:
+        for blob in source_files:
             try:
                 content = blob.download_as_text()
-                for line in content.splitlines():
-                    if not line.strip():
-                        continue
-                    try:
-                        data = json.loads(line)
-                        # Handle Vertex AI Batch output format
-                        if 'response' in data and 'candidates' in data['response']:
-                            try:
-                                # Extract the JSON string from the response
-                                text_content = data['response']['candidates'][0]['content']['parts'][0]['text']
-                                if text_content:
-                                    inner_data = json.loads(text_content)
-                                    
-                                    # Check for processed_articles list
-                                    if 'processed_articles' in inner_data and isinstance(inner_data['processed_articles'], list):
-                                        for article in inner_data['processed_articles']:
-                                            url = article.get('original_url')
-                                            if url:
-                                                processed_urls.add(url)
-                            except (KeyError, IndexError, json.JSONDecodeError) as e:
-                                logger.warning(f"Failed to parse inner JSON from Vertex AI response: {e}")
-                                continue
-                        
-                        # Fallback for other formats or direct prediction objects
-                        else:
-                            prediction = data.get('prediction', data)
-                            
-                            # The prediction object should have original_url
-                            url = prediction.get('original_url')
-                            if url:
-                                processed_urls.add(url)
-                            
-                    except json.JSONDecodeError:
-                        continue
-            except Exception as e:
-                logger.warning(f"Error reading blob {blob.name}: {e}")
+                data = json.loads(content)
                 
-        logger.info(f"Total unique processed URLs found for today: {len(processed_urls)}")
+                articles = data.get("articles", [])
+                for article in articles:
+                    # Check various common fields for URL
+                    url = article.get("url") or article.get("link") or article.get("original_url")
+                    if url:
+                        processed_urls.add(url)
+                        
+            except Exception as e:
+                logger.warning(f"Error reading/parsing blob {blob.name}: {e}")
+                
+        logger.info(f"Total unique processed URLs found for today in source files: {len(processed_urls)}")
         
     except Exception as e:
         logger.error(f"Error fetching processed URLs: {e}")
