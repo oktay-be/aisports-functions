@@ -175,18 +175,24 @@ Add to each consolidated article:
 - Generic categories: "sports", "news"
 - Overly specific: "fenerbahce-vs-galatasaray-2025-01-15"
 
-### 9. Language Consistency
+### 9. Language Consistency & Translation
 
-- Preserve the original `language` field
-- For Turkish articles: Keep Turkish entities as-is (don't translate)
-- For English articles: Keep English entities
-- Mixed language: Use primary language of the title
+- **Language Preservation**: The `title` and `summary` MUST be in the **original language** of the source articles.
+- **Translation**:
+  - If `language` is NOT "turkish" (e.g., "english", "spanish", "german"), you MUST provide a Turkish translation of the summary in the `summary_translation` field.
+  - If `language` IS "turkish", the `summary_translation` field should be null or empty.
+- **X Post Generation**:
+  - Create an `x_post` field for EVERY article.
+  - This must be a short, engaging social media post derived from the summary.
+  - **Constraint**: Maximum 280 characters.
+  - **Language**: ALWAYS in Turkish, regardless of the article's original language.
+  - Use appropriate hashtags (e.g., #Fenerbahçe, #Transfer, #Futbol).
 
 ### 10. Final Validation
 
 Before returning, verify:
 - ✅ No duplicate URLs in output
-- ✅ All articles have required fields
+- ✅ All articles have required fields (including `x_post`)
 - ✅ `processing_summary` numbers are accurate
 - ✅ Total articles reduced (unless all unique)
 - ✅ No information loss (all unique entities preserved)
@@ -218,7 +224,9 @@ Before returning, verify:
       },
       "content_quality": "high",
       "confidence": 0.95,
-      "language": "tr",
+      "language": "en",
+      "summary_translation": "Fenerbahçe, Süper Lig derbisinde Galatasaray'ı 3-1 mağlup ederken Edin Dzeko iki gol attı. İkinci yarıda Icardi Galatasaray adına bir penaltı kaçırdı.",
+      "x_post": "Derbide zafer Fenerbahçe'nin! 🟡🔵 Edin Dzeko'nun iki golüyle sarı-lacivertliler Galatasaray'ı 3-1 mağlup etti. Icardi penaltıdan yararlanamadı. #Fenerbahçe #Galatasaray #Derbi #SüperLig",
       "_merge_metadata": {
         "candidate_index": 1,
         "candidate_avg_logprobs": -0.10573,

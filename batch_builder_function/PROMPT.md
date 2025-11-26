@@ -107,6 +107,15 @@ For each category assignment, provide a confidence score (0.0-1.0):
 - 0.4: Weak indications, mostly speculation
 - 0.2: Minimal indication, mostly assumed
 
+### 7. TRANSLATION & SOCIAL MEDIA
+- **Summary Translation**:
+  - If the article is NOT in Turkish, provide a Turkish translation of the summary in `summary_translation`.
+  - If the article IS in Turkish, leave `summary_translation` as null or empty string.
+- **X Post**:
+  - Generate a short, engaging tweet (max 280 chars) in `x_post`.
+  - **Language**: ALWAYS Turkish.
+  - Include relevant hashtags.
+
 ## OUTPUT FORMAT
 
 Return a JSON object with this exact structure:
@@ -149,7 +158,9 @@ Return a JSON object with this exact structure:
       "published_date": "2025-06-21T09:20:50+03:00",
       "keywords_matched": ["real madrid", "transfer"],
       "content_quality": "high|medium|low",
-      "language": "spanish"
+      "language": "spanish",
+      "summary_translation": "Real Madrid transferi hakkında Türkçe özet...",
+      "x_post": "Real Madrid'den flaş transfer hamlesi! 🚨 İspanyol devi genç yıldız için harekete geçti. #RealMadrid #Transfer"
     }
   ]
 }

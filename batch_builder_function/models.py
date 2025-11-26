@@ -56,9 +56,11 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                     "published_date": {"type": "STRING", "nullable": True},
                     "keywords_matched": {"type": "ARRAY", "items": {"type": "STRING"}},
                     "content_quality": {"type": "STRING"},
-                    "language": {"type": "STRING"}
+                    "language": {"type": "STRING"},
+                    "summary_translation": {"type": "STRING"},
+                    "x_post": {"type": "STRING"}
                 },
-                "required": ["id", "title", "summary", "categories", "source"]
+                "required": ["id", "title", "summary", "categories", "source", "x_post"]
             }
         }
     },

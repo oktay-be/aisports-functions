@@ -64,7 +64,9 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                         "enum": ["high", "medium", "low"]
                     },
                     "confidence": {"type": "number"},
-                    "language": {"type": "string"}
+                    "language": {"type": "string"},
+                    "summary_translation": {"type": "string"},
+                    "x_post": {"type": "string"}
                 },
                 "required": [
                     "original_url",
@@ -76,7 +78,8 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                     "key_entities",
                     "content_quality",
                     "confidence",
-                    "language"
+                    "language",
+                    "x_post"
                 ]
             }
         }
