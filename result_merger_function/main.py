@@ -360,6 +360,7 @@ You are given a merged dataset of sports news articles that may contain duplicat
 3. Keep all unique articles
 
 ## Rules:
+- **LANGUAGE:** Consolidated summary MUST be in the **SAME LANGUAGE** as the source articles.
 - Same URL = duplicate (keep the better one)
 - Title similarity ≥90% = likely duplicate
 - Preserve ALL key information (dates, amounts, names, quotes)

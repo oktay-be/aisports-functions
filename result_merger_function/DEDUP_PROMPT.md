@@ -28,7 +28,14 @@ You will receive a JSON file with this structure:
 
 ## Your Task
 
-### 1. Identify Duplicates
+### 1. LANGUAGE PRESERVATION (CRITICAL)
+- **DO NOT TRANSLATE**: The consolidated `title` and `summary` MUST be in the **original language** of the source articles.
+- If the source articles are in Turkish, the result must be in Turkish.
+- If the source articles are in Spanish, the result must be in Spanish.
+- If the source articles are in English, the result must be in English.
+- **Mixed Languages**: If merging articles in different languages, prefer the language of the highest quality article, or default to English only if absolutely necessary.
+
+### 2. Identify Duplicates
 
 **Exact Duplicates** (MUST remove):
 - Same `original_url` → Keep the better version
@@ -40,7 +47,7 @@ You will receive a JSON file with this structure:
 - Same key entities + similar summary → Same event coverage
 - Same teams/players + same date + similar categories → Related coverage
 
-### 2. Quality Priority Rules
+### 3. Quality Priority Rules
 
 When choosing which version to keep:
 
@@ -55,11 +62,12 @@ When choosing which version to keep:
 priority = (quality_score * 10) + (confidence * 5) + (num_entities * 2) + (summary_length / 100)
 ```
 
-### 3. Information Consolidation Rules
+### 4. Information Consolidation Rules
 
 When merging near-duplicates:
 
 **Preserve ALL Unique Information**:
+- **LANGUAGE**: Consolidated summary MUST be in the **SAME LANGUAGE** as the source articles.
 - Merge `key_entities`: Union of all teams, players, competitions, locations
 - Merge `categories`: Union of all categories
 - Merge `summary`: Combine insights if they add new information
@@ -97,7 +105,7 @@ Consolidated Result: {
 }
 ```
 
-### 4. URL-Based Deduplication
+### 5. URL-Based Deduplication
 
 **Same URL = Duplicate** (Keep best version):
 ```python

@@ -22,7 +22,7 @@ def get_test_message_payload():
     This can be imported by other modules for local testing.
     """
     return {
-        "keywords": ["fenerbahce", "mourinho", "galatasaray"],
+        "keywords": ["fenerbahce", "galatasaray", "tedesco"],
         "urls": [
             "https://www.lequipe.fr/Football/",
             "https://www.francefootball.fr/",

@@ -10,7 +10,14 @@ You will receive a JSON file containing scraped European sports news articles wi
 
 ## PROCESSING REQUIREMENTS
 
-### 1. DEDUPLICATION
+### 1. LANGUAGE PRESERVATION (CRITICAL)
+- **DO NOT TRANSLATE**: The `title` and `summary` MUST be in the **original language** of the source article.
+- If the article is in Turkish, the summary must be in Turkish.
+- If the article is in Spanish, the summary must be in Spanish.
+- If the article is in English, the summary must be in English.
+- The `language` field in the output should indicate the detected language (e.g., "turkish", "spanish", "english").
+
+### 2. DEDUPLICATION
 - Remove duplicate articles based on:
   - Identical or very similar titles (≥90% similarity)
   - Same URL or same content body
@@ -18,13 +25,14 @@ You will receive a JSON file containing scraped European sports news articles wi
 - Keep the most complete version (with most content) when duplicates are found
 - Log how many duplicates were removed
 
-### 2. DATA CLEANING
+### 3. DATA CLEANING
 - Remove articles with missing or empty `title` and `body` fields
 - Clean up repeated content within article bodies (remove excessive repetition)
 - Normalize special characters and encoding issues
 - Remove navigation elements, advertisements, and non-news content from body text
 
-### 3. SUMMARIZATION
+### 4. SUMMARIZATION
+- **LANGUAGE:** The summary MUST be written in the **SAME LANGUAGE** as the original article. Do NOT translate.
 - Create a comprehensive summary that preserves all important information (no strict sentence limit)
 - Include ALL key details: player names, team names, transfer amounts, dates, sources, quotes
 - Capture the main news event, supporting details, and context
@@ -32,7 +40,7 @@ You will receive a JSON file containing scraped European sports news articles wi
 - Maintain factual accuracy while condensing repetitive or redundant content
 - Ensure no critical information is lost during the summarization process
 
-### 4. PRECISE CLASSIFICATION
+### 5. PRECISE CLASSIFICATION
 Classify each article with multiple relevant category tags from this taxonomy. **You are NOT restricted to this taxonomy** - feel free to add new categories or subcategories if the content requires more specific classification:
 
 **TRANSFER CATEGORIES:**
@@ -91,7 +99,7 @@ Classify each article with multiple relevant category tags from this taxonomy. *
 - Use descriptive names following the same naming convention (lowercase_with_underscores)
 - Provide clear descriptions for any new categories you create
 
-### 5. CONFIDENCE SCORING
+### 6. CONFIDENCE SCORING
 For each category assignment, provide a confidence score (0.0-1.0):
 - 1.0: Explicitly stated facts with evidence
 - 0.8: Strong indications with supporting details
@@ -117,8 +125,8 @@ Return a JSON object with this exact structure:
     {
       "id": "unique_identifier",
       "original_url": "source_url",
-      "title": "cleaned_title",
-      "summary": "Comprehensive summary preserving all key information, quotes, amounts, dates, and context",
+      "title": "cleaned_title (in original language)",
+      "summary": "Comprehensive summary in ORIGINAL LANGUAGE preserving all key information, quotes, amounts, dates, and context",
       "key_entities": {
         "teams": ["team1", "team2"],
         "players": ["player1", "player2"],
@@ -168,6 +176,7 @@ Return a JSON object with this exact structure:
 - Identify the stage of transfer process (interest, negotiations, completion)
 
 ## QUALITY REQUIREMENTS
+- **LANGUAGE:** Summaries MUST be in the original language.
 - Every article must have at least one category with confidence ≥ 0.6
 - Summaries must be comprehensive and factual, preserving all important information without data loss
 - All monetary amounts and dates must be preserved accurately
