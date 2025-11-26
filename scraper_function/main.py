@@ -225,6 +225,8 @@ async def _process_scraping_request(message_data: dict):
                     dropped_articles.append(article)
                 else:
                     unique_articles.append(article)
+                    if url:
+                        processed_urls.add(url)
             
             if dropped_articles:
                 logger.info(f"Dropped {len(dropped_articles)} duplicate articles for session {i+1}")
