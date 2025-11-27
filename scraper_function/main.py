@@ -4,7 +4,7 @@ import base64
 import asyncio
 import logging
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from google.cloud import pubsub_v1, storage
@@ -47,6 +47,93 @@ SESSION_DATA_CREATED_TOPIC = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-da
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 # JOURNALIST_LOG_LEVEL already defined above for logging configuration
+
+def is_first_run_of_day(storage_client, bucket_name, date_obj, collection_id="default"):
+    """
+    Check if this is the first run of the day by checking if the batch_processing folder exists for today.
+    Returns True if no batch processing has been done today (first run), False otherwise.
+    """
+    if not storage_client:
+        return False
+    
+    try:
+        current_year_month = date_obj.strftime("%Y-%m")
+        current_date = date_obj.strftime("%Y-%m-%d")
+        
+        # Check batch_processing folder: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/
+        prefix = f"{NEWS_DATA_ROOT_PREFIX}batch_processing/{collection_id}/{current_year_month}/{current_date}/"
+        
+        logger.info(f"Checking if first run of day by inspecting: {prefix}")
+        
+        bucket = storage_client.bucket(bucket_name)
+        blobs = list(bucket.list_blobs(prefix=prefix, max_results=1))
+        
+        is_first_run = len(blobs) == 0
+        logger.info(f"First run of the day: {is_first_run}")
+        
+        return is_first_run
+        
+    except Exception as e:
+        logger.error(f"Error checking first run status: {e}")
+        # Default to False (assume not first run) to avoid over-fetching
+        return False
+
+def get_processed_urls_last_n_days(storage_client, bucket_name, date_obj, collection_id="default", days=7):
+    """
+    Retrieves a set of already processed URLs from source session data for the last N days.
+    Used when it's the first run of the day to avoid re-scraping recent articles.
+    """
+    processed_urls = set()
+    if not storage_client:
+        return processed_urls
+    
+    try:
+        bucket = storage_client.bucket(bucket_name)
+        
+        logger.info(f"Fetching processed URLs from last {days} days for collection '{collection_id}'")
+        
+        # Iterate through the last N days
+        for day_offset in range(days):
+            check_date = date_obj - timedelta(days=day_offset)
+            year_month = check_date.strftime("%Y-%m")
+            date_str = check_date.strftime("%Y-%m-%d")
+            
+            # Prefix: news_data/sources/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/
+            prefix = f"{NEWS_DATA_ROOT_PREFIX}sources/{collection_id}/{year_month}/{date_str}/"
+            
+            logger.info(f"  Scanning day {day_offset + 1}/{days}: {date_str} (prefix: {prefix})")
+            
+            blobs = bucket.list_blobs(prefix=prefix)
+            
+            source_files = []
+            for blob in blobs:
+                # Check for session_data_*.json files
+                if blob.name.endswith(".json") and "session_data_" in blob.name:
+                    source_files.append(blob)
+            
+            logger.info(f"    Found {len(source_files)} source session files for {date_str}")
+            
+            for blob in source_files:
+                try:
+                    content = blob.download_as_text()
+                    data = json.loads(content)
+                    
+                    articles = data.get("articles", [])
+                    for article in articles:
+                        # Check various common fields for URL
+                        url = article.get("url") or article.get("link") or article.get("original_url")
+                        if url:
+                            processed_urls.add(url)
+                            
+                except Exception as e:
+                    logger.warning(f"Error reading/parsing blob {blob.name}: {e}")
+        
+        logger.info(f"Total unique processed URLs found in last {days} days: {len(processed_urls)}")
+        
+    except Exception as e:
+        logger.error(f"Error fetching processed URLs from last {days} days: {e}")
+    
+    return processed_urls
 
 def get_processed_urls_for_date(storage_client, bucket_name, date_obj, collection_id="default"):
     """
@@ -180,10 +267,18 @@ async def _process_scraping_request(message_data: dict):
         # Initialize list to accumulate success messages for batch publishing
         success_messages = []
         
-        # Fetch processed URLs for today to perform deduplication
+        # Fetch processed URLs for deduplication
         processed_urls = set()
         if ENVIRONMENT != 'local':
-            processed_urls = get_processed_urls_for_date(storage_client, GCS_BUCKET_NAME, start_time, collection_id)
+            # Check if this is the first run of the day
+            first_run = is_first_run_of_day(storage_client, GCS_BUCKET_NAME, start_time, collection_id)
+            
+            if first_run:
+                logger.info("First run of the day detected - scanning last 7 days for deduplication")
+                processed_urls = get_processed_urls_last_n_days(storage_client, GCS_BUCKET_NAME, start_time, collection_id, days=7)
+            else:
+                logger.info("Subsequent run - scanning only today's data for deduplication")
+                processed_urls = get_processed_urls_for_date(storage_client, GCS_BUCKET_NAME, start_time, collection_id)
 
         # Process each session
         for i, session in enumerate(source_sessions):
