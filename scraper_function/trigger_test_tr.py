@@ -26,7 +26,8 @@ def get_test_message_payload():
         "urls": [
             "https://www.fanatik.com.tr",
             "https://www.ntvspor.net/",
-            "https://www.trtspor.com.tr/haber/futbol"
+            "https://www.skorgazetesi.com",
+            "https://beinsports.com.tr"
         ],
         "scrape_depth": 1,
         "persist": False,
