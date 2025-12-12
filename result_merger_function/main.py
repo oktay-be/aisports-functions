@@ -495,10 +495,20 @@ Return the deduplicated articles in the standard format without losing any uniqu
             # Path: .../{run_id}/stage2_deduplication/results/
             output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{year_month}/{date_str}/{run_id}/stage2_deduplication/results/"
             
-            # Create batch job configuration
-            batch_config = CreateBatchJobConfig(dest=output_uri)
+            # Create a meaningful display name for the batch job
+            # Format: aisports_{collection}_{stage}_{date}_{time}
+            # Example: aisports_eu_stage2_20251212_160833
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            display_name = f"aisports_{collection_id}_stage2_{date_str.replace('-', '')}_{timestamp}"
+            
+            # Create batch job configuration with custom display name
+            batch_config = CreateBatchJobConfig(
+                dest=output_uri,
+                display_name=display_name
+            )
             
             logger.info(f"Submitting dedup batch job...")
+            logger.info(f"  Display name: {display_name}")
             logger.info(f"  Model: {VERTEX_AI_MODEL}")
             logger.info(f"  Source: {batch_request_gcs_uri}")
             logger.info(f"  Output: {output_uri}")
