@@ -355,10 +355,20 @@ The data contains sports news articles that need to be processed according to th
             # New path: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/results/
             output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{current_year_month}/{current_date}/{run_id}/stage1_extraction/results/"
             
-            # Create batch job configuration
-            batch_config = CreateBatchJobConfig(dest=output_uri)
+            # Create a meaningful display name for the batch job
+            # Format: aisports_{collection}_{stage}_{date}_{time}
+            # Example: aisports_eu_stage1_20251212_160833
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            display_name = f"aisports_{collection_id}_stage1_{current_date.replace('-', '')}_{timestamp}"
+            
+            # Create batch job configuration with custom display name
+            batch_config = CreateBatchJobConfig(
+                dest=output_uri,
+                display_name=display_name
+            )
             
             logger.info(f"Submitting batch job...")
+            logger.info(f"  Display name: {display_name}")
             logger.info(f"  Model: {VERTEX_AI_MODEL}")
             logger.info(f"  Source: {batch_request_gcs_uri}")
             logger.info(f"  Output: {output_uri}")
