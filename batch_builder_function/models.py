@@ -28,7 +28,7 @@ VERTEX_AI_RESPONSE_SCHEMA = {
             "items": {
                 "type": "OBJECT",
                 "properties": {
-                    "id": {"type": "STRING"},
+                    "article_id": {"type": "STRING"},
                     "original_url": {"type": "STRING"},
                     "title": {"type": "STRING"},
                     "summary": {"type": "STRING"},
@@ -60,7 +60,7 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                     "summary_translation": {"type": "STRING"},
                     "x_post": {"type": "STRING"}
                 },
-                "required": ["id", "title", "summary", "categories", "source", "x_post"]
+                "required": ["article_id", "title", "summary", "categories", "source", "x_post"]
             }
         }
     },

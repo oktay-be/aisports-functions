@@ -10,7 +10,12 @@ You will receive a JSON file containing scraped European sports news articles wi
 
 ## PROCESSING REQUIREMENTS
 
-### 1. LANGUAGE PRESERVATION (CRITICAL)
+### 1. ARTICLE ID PRESERVATION (CRITICAL)
+- Each input article contains an `article_id` field - this is a pre-generated unique identifier
+- **DO NOT GENERATE NEW IDs**: Copy the `article_id` exactly from the input article to the output
+- The `article_id` is used for tracking articles across the entire pipeline
+
+### 2. LANGUAGE PRESERVATION (CRITICAL)
 - **DO NOT TRANSLATE**: The `title` and `summary` MUST be in the **original language** of the source article.
 - If the article is in Turkish, the summary must be in Turkish.
 - If the article is in Spanish, the summary must be in Spanish.
@@ -132,7 +137,7 @@ Return a JSON object with this exact structure:
   },
   "processed_articles": [
     {
-      "id": "unique_identifier",
+      "article_id": "preserve_from_input",
       "original_url": "source_url",
       "title": "cleaned_title (in original language)",
       "summary": "Comprehensive summary in ORIGINAL LANGUAGE preserving all key information, quotes, amounts, dates, and context",

@@ -15,6 +15,11 @@ except ImportError:
     JOURNALIST_AVAILABLE = False
     Journalist = None
 
+# Import article ID utility
+import sys
+sys.path.insert(0, str(Path(__file__).parent.parent))
+from utils.article_id import generate_article_id
+
 # Enhanced logging configuration to capture all logs including journalist library
 # Use dynamic log level from environment variable
 JOURNALIST_LOG_LEVEL = os.getenv('JOURNALIST_LOG_LEVEL', 'INFO')
@@ -295,6 +300,9 @@ async def _process_scraping_request(message_data: dict):
                 if url and url in processed_urls:
                     dropped_articles.append(article)
                 else:
+                    # Generate unique article ID based on URL
+                    if url:
+                        article["article_id"] = generate_article_id(url)
                     unique_articles.append(article)
                     if url:
                         processed_urls.add(url)

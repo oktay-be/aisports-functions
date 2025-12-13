@@ -29,6 +29,7 @@ VERTEX_AI_RESPONSE_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
+                    "article_id": {"type": "string"},
                     "original_url": {"type": "string"},
                     "title": {"type": "string"},
                     "summary": {"type": "string"},
@@ -69,6 +70,7 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                     "x_post": {"type": "string"}
                 },
                 "required": [
+                    "article_id",
                     "original_url",
                     "title",
                     "summary",
