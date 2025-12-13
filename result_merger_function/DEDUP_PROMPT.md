@@ -28,14 +28,20 @@ You will receive a JSON file with this structure:
 
 ## Your Task
 
-### 1. LANGUAGE PRESERVATION (CRITICAL)
+### 1. ARTICLE ID PRESERVATION (CRITICAL)
+- Each input article contains an `article_id` field - this is a pre-generated unique identifier (16-character hash based on URL)
+- **DO NOT GENERATE NEW IDs**: Copy the `article_id` exactly from the input article to the output
+- The `article_id` is used for tracking articles across the entire pipeline
+- When consolidating duplicates: Use the `article_id` from the **highest priority article** (same as `original_url`)
+
+### 2. LANGUAGE PRESERVATION (CRITICAL)
 - **DO NOT TRANSLATE**: The consolidated `title` and `summary` MUST be in the **original language** of the source articles.
 - If the source articles are in Turkish, the result must be in Turkish.
 - If the source articles are in Spanish, the result must be in Spanish.
 - If the source articles are in English, the result must be in English.
 - **Mixed Languages**: If merging articles in different languages, prefer the language of the highest quality article, or default to English only if absolutely necessary.
 
-### 2. Identify Duplicates
+### 3. Identify Duplicates
 
 **Exact Duplicates** (MUST remove):
 - Same `original_url` → Keep the better version
@@ -47,7 +53,7 @@ You will receive a JSON file with this structure:
 - Same key entities + similar summary → Same event coverage
 - Same teams/players + same date + similar categories → Related coverage
 
-### 3. Quality Priority Rules
+### 4. Quality Priority Rules
 
 When choosing which version to keep:
 
@@ -62,11 +68,12 @@ When choosing which version to keep:
 priority = (quality_score * 10) + (confidence * 5) + (num_entities * 2) + (summary_length / 100)
 ```
 
-### 4. Information Consolidation Rules
+### 5. Information Consolidation Rules
 
 When merging near-duplicates:
 
 **Preserve ALL Unique Information**:
+- **ARTICLE_ID**: Keep the `article_id` from the highest priority article (same source as `original_url`)
 - **LANGUAGE**: Consolidated summary MUST be in the **SAME LANGUAGE** as the source articles.
 - Merge `key_entities`: Union of all teams, players, competitions, locations
 - Merge `categories`: Union of all categories
@@ -79,14 +86,16 @@ When merging near-duplicates:
 
 **Example**:
 ```
-Article A: { 
+Article A (priority: 28.5): { 
+  "article_id": "a1b2c3d4e5f67890",
   "title": "Fenerbahçe wins 3-1",
   "key_entities": {"teams": ["Fenerbahçe", "Galatasaray"], "players": ["Dzeko"]},
   "categories": ["football", "super-lig"],
   "summary": "Fenerbahçe defeated Galatasaray 3-1 with Dzeko scoring twice."
 }
 
-Article B: {
+Article B (priority: 26.3): {
+  "article_id": "f9e8d7c6b5a43210",
   "title": "Dzeko's brace leads Fenerbahçe to victory",
   "key_entities": {"teams": ["Fenerbahçe"], "players": ["Dzeko", "Icardi"]},
   "categories": ["football", "super-lig", "match-reports"],
@@ -94,6 +103,7 @@ Article B: {
 }
 
 Consolidated Result: {
+  "article_id": "a1b2c3d4e5f67890",  // Preserved from Article A (highest priority)
   "title": "Dzeko's brace leads Fenerbahçe to victory over Galatasaray 3-1",
   "key_entities": {"teams": ["Fenerbahçe", "Galatasaray"], "players": ["Dzeko", "Icardi"]},
   "categories": ["football", "super-lig", "match-reports"],
@@ -105,12 +115,13 @@ Consolidated Result: {
 }
 ```
 
-### 5. URL-Based Deduplication
+### 6. URL-Based Deduplication
 
 **Same URL = Duplicate** (Keep best version):
 ```python
 if article_a.url == article_b.url:
     keep_article = max(article_a, article_b, key=priority_score)
+    # article_id is preserved from keep_article
 ```
 
 **Different URLs but duplicate content**:
@@ -119,7 +130,7 @@ if article_a.url == article_b.url:
 - Check date proximity
 - If duplicate: Consolidate information
 
-### 5. Remove Low-Quality Articles
+### 7. Remove Low-Quality Articles
 
 **Remove if**:
 - `content_quality` == "low" AND no unique information
@@ -133,7 +144,7 @@ if article_a.url == article_b.url:
 - Contains unique categories
 - Is the ONLY article about a specific event
 
-### 6. Output Requirements
+### 8. Output Requirements
 
 **Return the deduplicated dataset in the SAME JSON structure**:
 
@@ -150,7 +161,7 @@ if article_a.url == article_b.url:
 }
 ```
 
-### 7. Deduplication Metadata
+### 9. Deduplication Metadata
 
 Add to each consolidated article:
 ```json
@@ -164,7 +175,7 @@ Add to each consolidated article:
 }
 ```
 
-### 8. Category Taxonomy (STRICT)
+### 10. Category Taxonomy (STRICT)
 
 **IMPORTANT:** Use ONLY hyphenated tags. Normalize any underscore or space-separated tags to hyphen format.
 
@@ -193,7 +204,7 @@ Add to each consolidated article:
 - Convert `match results` → `match-results`
 - When consolidating, merge all category tags and normalize to hyphen format
 
-### 9. Language Consistency & Translation
+### 11. Language Consistency & Translation
 
 - **Language Preservation**: The `title` and `summary` MUST be in the **original language** of the source articles.
 - **Translation**:
@@ -206,11 +217,12 @@ Add to each consolidated article:
   - **Language**: ALWAYS in Turkish, regardless of the article's original language.
   - Use appropriate hashtags (e.g., #Fenerbahçe, #Transfer, #Futbol).
 
-### 10. Final Validation
+### 12. Final Validation
 
 Before returning, verify:
 - ✅ No duplicate URLs in output
-- ✅ All articles have required fields (including `x_post`)
+- ✅ All articles have required fields (including `article_id` and `x_post`)
+- ✅ All `article_id` values are preserved from input (16-character hex strings)
 - ✅ `processing_summary` numbers are accurate
 - ✅ Total articles reduced (unless all unique)
 - ✅ No information loss (all unique entities preserved)
@@ -228,6 +240,7 @@ Before returning, verify:
   },
   "processed_articles": [
     {
+      "article_id": "a1b2c3d4e5f67890",
       "original_url": "https://example.com/fenerbahce-galatasaray-3-1",
       "title": "Dzeko's brace leads Fenerbahçe to 3-1 victory over Galatasaray",
       "summary": "Edin Dzeko scored two goals as Fenerbahçe defeated Galatasaray 3-1 in the Super Lig derby. Icardi missed a penalty for Galatasaray in the second half.",
@@ -266,10 +279,11 @@ Before returning, verify:
 
 ## CRITICAL REMINDERS
 
-1. **NO INFORMATION LOSS**: Every unique fact, entity, or insight must be preserved
-2. **QUALITY OVER QUANTITY**: Better to keep a few high-quality articles than many duplicates
-3. **VERIFY NUMBERS**: `total_articles_processed` = `articles_kept` + `articles_deduplicated` + `articles_removed_low_quality`
-4. **PRESERVE STRUCTURE**: Output must match the input schema exactly
-5. **ADD METADATA**: Always add `_dedup_metadata` for transparency
+1. **PRESERVE ARTICLE_ID**: Copy the `article_id` exactly from input - DO NOT generate new IDs
+2. **NO INFORMATION LOSS**: Every unique fact, entity, or insight must be preserved
+3. **QUALITY OVER QUANTITY**: Better to keep a few high-quality articles than many duplicates
+4. **VERIFY NUMBERS**: `total_articles_processed` = `articles_kept` + `articles_deduplicated` + `articles_removed_low_quality`
+5. **PRESERVE STRUCTURE**: Output must match the input schema exactly
+6. **ADD METADATA**: Always add `_dedup_metadata` for transparency
 
 Now process the provided merged dataset and return the deduplicated results.
