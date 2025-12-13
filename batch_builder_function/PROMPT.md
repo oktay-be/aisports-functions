@@ -46,63 +46,18 @@ You will receive a JSON file containing scraped European sports news articles wi
 - Ensure no critical information is lost during the summarization process
 
 ### 5. PRECISE CLASSIFICATION
-Classify each article with multiple relevant category tags from this taxonomy. **You are NOT restricted to this taxonomy** - feel free to add new categories or subcategories if the content requires more specific classification:
+Classify each article using tags from the **ALLOWED TAGS** list provided at the end of this prompt. 
 
-**TRANSFER CATEGORIES:**
-- `transfers_confirmed` - Official, completed transfers
-- `transfers_rumors` - Unconfirmed transfer speculation
-- `transfers_negotiations` - Ongoing transfer talks/meetings
-- `transfers_interest` - Club interest or scouting
-- `contract_renewals` - Contract extensions
-- `contract_disputes` - Contract disagreements
-- `departures` - Players leaving clubs
+**CRITICAL RULES:**
+- For **basketball** articles: Use ONLY the tag `basketball`
+- For **volleyball** articles: Use ONLY the tag `volleyball`  
+- For **other non-football sports**: Use ONLY the tag `other-sports`
+- For **football** articles: Select appropriate tags from the allowed list (multiple tags encouraged)
 
-**RIVALRY CATEGORIES:**
-- `team_rivalry` - Competition between clubs (local derbies, historic rivalries, etc.)
-- `personal_rivalry` - Individual player/coach conflicts
-- `fan_rivalry` - Supporter-related tensions
-
-**SCANDAL/CONTROVERSY:**
-- `field_incidents` - On-field fights, red cards, referee disputes
-- `off_field_scandals` - Personal conduct, legal issues
-- `corruption_allegations` - Match fixing, bribery claims
-- `disciplinary_actions` - Suspensions, fines, sanctions
-
-**POLITICS IN SPORTS:**
-- `elections_management` - Club presidential elections, board changes
-- `federation_politics` - National federation matters (FA, FIGC, DFB, etc.)
-- `government_sports` - State involvement in sports
-- `policy_changes` - Rule changes, regulations
-- `uefa_fifa_matters` - European and international governing body decisions
-
-**PERFORMANCE & COMPETITION:**
-- `match_results` - Game outcomes and analysis
-- `performance_analysis` - Player/team performance evaluation
-- `tactical_analysis` - Coach strategies and formations
-- `injury_news` - Player injuries and recovery
-- `squad_changes` - Lineup modifications
-
-**BUSINESS & FINANCE:**
-- `financial_news` - Club finances, debt, revenue
-- `sponsorship_deals` - Commercial partnerships
-- `stadium_infrastructure` - Facility developments
-
-**LEAGUE & COMPETITION:**
-- `league_standings` - Table positions, points, relegation battles
-- `european_competitions` - Champions League, Europa League, Conference League
-- `domestic_cups` - National cup competitions
-- `international_tournaments` - World Cup, Euros, Nations League
-- `youth_competitions` - U21, academy tournaments
-
-**GOSSIP & ENTERTAINMENT:**
-- `personal_life` - Player personal matters (non-scandalous)
-- `social_media` - Player social media activities
-- `lifestyle_news` - Player lifestyle coverage
-
-**ADDITIONAL CATEGORIES:**
-- Add new categories as needed based on the specific content
-- Use descriptive names following the same naming convention (lowercase_with_underscores)
-- Provide clear descriptions for any new categories you create
+**If no existing tag fits:**
+- You may propose a NEW tag using the `suggested_new_tags` field
+- New tags must use hyphenated format: `new-category-name`
+- Provide justification for why no existing tag fits
 
 ### 6. CONFIDENCE SCORING
 For each category assignment, provide a confidence score (0.0-1.0):
@@ -133,7 +88,12 @@ Return a JSON object with this exact structure:
     "duplicates_removed": 0,
     "empty_articles_removed": 0,
     "processing_date": "2025-06-21T00:00:00Z",
-    "custom_categories_added": ["new_category1", "new_category2"]
+    "suggested_new_tags": [
+      {
+        "tag": "new-tag-name",
+        "justification": "Reason why no existing tag fits this content"
+      }
+    ]
   },
   "processed_articles": [
     {
@@ -149,12 +109,12 @@ Return a JSON object with this exact structure:
       },
       "categories": [
         {
-          "tag": "transfers_rumors",
+          "tag": "transfers-rumors",
           "confidence": 0.8,
           "evidence": "Article mentions unconfirmed interest from Italian clubs"
         },
         {
-          "tag": "contract_disputes", 
+          "tag": "contract-disputes", 
           "confidence": 0.6,
           "evidence": "Player reportedly unhappy with contract terms"
         }
@@ -175,10 +135,16 @@ Return a JSON object with this exact structure:
 
 **Be precise and evidence-based:**
 - Only assign categories that are clearly supported by the article content
-- Multiple categories are encouraged when appropriate
+- Multiple categories are encouraged for football articles
 - Provide specific evidence quotes for each category assignment
 - Use higher confidence scores for concrete facts, lower for speculation
-- Feel free to create new categories if existing ones don't adequately describe the content
+- Only propose new tags via `suggested_new_tags` if NO existing tag fits
+
+**Sport-Specific Rules:**
+- **Basketball**: Use ONLY the `basketball` tag
+- **Volleyball**: Use ONLY the `volleyball` tag
+- **Other sports** (tennis, F1, etc.): Use ONLY the `other-sports` tag
+- **Football**: Use multiple tags from the allowed list as appropriate
 
 **European Football Context:**
 - Understand major European leagues: Premier League, La Liga, Serie A, Bundesliga, Ligue 1, etc.

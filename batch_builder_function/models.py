@@ -19,6 +19,16 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                 "custom_categories_added": {
                     "type": "ARRAY",
                     "items": {"type": "STRING"}
+                },
+                "suggested_new_tags": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "tag": {"type": "STRING"},
+                            "justification": {"type": "STRING"}
+                        }
+                    }
                 }
             },
             "required": ["total_input_articles", "processing_date"]

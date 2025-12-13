@@ -164,16 +164,34 @@ Add to each consolidated article:
 }
 ```
 
-### 8. Category Taxonomy (Keep Consistent)
+### 8. Category Taxonomy (STRICT)
 
-**Primary Categories**:
-- football, basketball, volleyball, tennis, athletics, formula1, esports
-- super-lig, champions-league, europa-league, world-cup, euro-cup
-- transfers, match-reports, previews, analysis, interviews
+**IMPORTANT:** Use ONLY hyphenated tags. Normalize any underscore or space-separated tags to hyphen format.
 
-**Avoid**:
-- Generic categories: "sports", "news"
-- Overly specific: "fenerbahce-vs-galatasaray-2025-01-15"
+**Sport-Specific Rules:**
+- **Basketball articles**: Use ONLY `basketball`
+- **Volleyball articles**: Use ONLY `volleyball`  
+- **Other non-football sports**: Use ONLY `other-sports`
+- **Football articles**: Use multiple tags as appropriate from the list below
+
+**Allowed Football Tags:**
+- `transfers-confirmed`, `transfers-rumors`, `transfers-negotiations`, `transfers-interest`
+- `contract-renewals`, `contract-disputes`, `departures`
+- `match-results`, `match-preview`, `match-report`, `match-postponement`
+- `tactical-analysis`, `performance-analysis`, `league-standings`
+- `super-lig`, `champions-league`, `european-competitions`, `domestic-cups`, `turkish-cup`
+- `international-tournaments`, `youth-competitions`, `womens-football`
+- `club-news`, `squad-changes`, `injuries`, `stadium-infrastructure`
+- `disciplinary-actions`, `field-incidents`, `off-field-scandals`, `corruption-allegations`, `legal-issues`
+- `federation-politics`, `elections-management`, `government-sports`, `uefa-fifa-matters`, `policy-changes`
+- `fan-activity`, `fan-rivalry`, `fan-protest`
+- `team-rivalry`, `personal-rivalry`, `derby`
+- `interviews`, `social-media`, `gossip-entertainment`, `player-statement`, `club-statement`
+
+**Tag Normalization:**
+- Convert `transfers_confirmed` → `transfers-confirmed`
+- Convert `match results` → `match-results`
+- When consolidating, merge all category tags and normalize to hyphen format
 
 ### 9. Language Consistency & Translation
 

@@ -57,6 +57,8 @@ BATCH_RESULTS_MERGED_FOLDER = os.getenv('BATCH_RESULTS_MERGED_FOLDER', 'batch_re
 DEDUP_RESULTS_FOLDER = os.getenv('DEDUP_RESULTS_FOLDER', 'dedup_results/')
 VERTEX_AI_LOCATION = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
 VERTEX_AI_MODEL = os.getenv('VERTEX_AI_MODEL', 'gemini-2.5-pro')
+TAXONOMY_BUCKET = os.getenv('TAXONOMY_BUCKET', 'aisports-scraping')
+TAXONOMY_PATH = os.getenv('TAXONOMY_PATH', 'taxonomy/tag_taxonomy.json')
 
 
 class ResultMerger:
@@ -90,6 +92,118 @@ class ResultMerger:
             except Exception as e:
                 logger.error(f"Failed to initialize Vertex AI client: {e}")
                 self.genai_client = None
+
+    def load_taxonomy_from_gcs(self) -> dict:
+        """
+        Load the tag taxonomy from GCS.
+        
+        Returns:
+            Full taxonomy dict with tags list, version, etc.
+        """
+        try:
+            bucket = self.storage_client.bucket(TAXONOMY_BUCKET)
+            blob = bucket.blob(TAXONOMY_PATH)
+            content = blob.download_as_text()
+            taxonomy_data = json.loads(content)
+            
+            logger.info(f"Loaded taxonomy with {len(taxonomy_data.get('tags', []))} tags from gs://{TAXONOMY_BUCKET}/{TAXONOMY_PATH}")
+            return taxonomy_data
+            
+        except Exception as e:
+            logger.error(f"Error loading taxonomy from GCS: {e}")
+            return {"tags": [], "version": "1.0", "last_updated": datetime.now(timezone.utc).isoformat()}
+
+    def update_taxonomy_with_new_tags(self, new_tags: List[str]) -> bool:
+        """
+        Update the taxonomy file in GCS with new tags.
+        
+        Args:
+            new_tags: List of new tag strings to add
+            
+        Returns:
+            True if update successful, False otherwise
+        """
+        if not new_tags:
+            logger.info("No new tags to add to taxonomy")
+            return True
+            
+        try:
+            # Load current taxonomy
+            taxonomy = self.load_taxonomy_from_gcs()
+            existing_tags = set(taxonomy.get('tags', []))
+            
+            # Filter to only truly new tags
+            tags_to_add = [tag for tag in new_tags if tag not in existing_tags]
+            
+            if not tags_to_add:
+                logger.info("All suggested tags already exist in taxonomy")
+                return True
+            
+            # Add new tags
+            taxonomy['tags'] = sorted(list(existing_tags | set(tags_to_add)))
+            taxonomy['last_updated'] = datetime.now(timezone.utc).isoformat()
+            
+            # Increment version
+            version_parts = taxonomy.get('version', '1.0').split('.')
+            minor = int(version_parts[1]) + 1 if len(version_parts) > 1 else 1
+            taxonomy['version'] = f"{version_parts[0]}.{minor}"
+            
+            # Upload updated taxonomy
+            bucket = self.storage_client.bucket(TAXONOMY_BUCKET)
+            blob = bucket.blob(TAXONOMY_PATH)
+            blob.upload_from_string(
+                json.dumps(taxonomy, indent=2, ensure_ascii=False),
+                content_type='application/json'
+            )
+            
+            logger.info(f"Updated taxonomy with {len(tags_to_add)} new tags: {tags_to_add}")
+            logger.info(f"New taxonomy version: {taxonomy['version']}, total tags: {len(taxonomy['tags'])}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error updating taxonomy in GCS: {e}")
+            return False
+
+    def collect_suggested_new_tags(self, predictions: List[dict]) -> List[str]:
+        """
+        Collect all suggested new tags from batch predictions.
+        
+        Args:
+            predictions: List of prediction objects from JSONL file
+            
+        Returns:
+            Deduplicated list of new tag suggestions
+        """
+        new_tags = set()
+        
+        for prediction in predictions:
+            try:
+                candidates = prediction.get('response', {}).get('candidates', [])
+                for candidate in candidates:
+                    response_text = candidate.get('content', {}).get('parts', [{}])[0].get('text', '')
+                    if response_text:
+                        response_data = json.loads(response_text)
+                        processing_summary = response_data.get('processing_summary', {})
+                        suggested = processing_summary.get('suggested_new_tags', [])
+                        
+                        for item in suggested:
+                            if isinstance(item, dict):
+                                tag = item.get('tag', '')
+                            else:
+                                tag = str(item)
+                            
+                            if tag:
+                                # Normalize to hyphenated format
+                                normalized_tag = tag.lower().replace('_', '-').replace(' ', '-')
+                                new_tags.add(normalized_tag)
+                                logger.info(f"Found suggested new tag: {normalized_tag}")
+                                
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                continue
+        
+        result = list(new_tags)
+        logger.info(f"Collected {len(result)} unique suggested new tags")
+        return result
 
     def download_prediction_file(self, gcs_uri: str) -> List[dict]:
         """
@@ -628,6 +742,13 @@ async def _process_merge_request(file_data: dict):
         if not predictions:
             logger.error("No predictions found in file")
             return
+        
+        # Step 1.5: Collect and update taxonomy with any suggested new tags
+        logger.info("Step 1.5: Collecting suggested new tags from predictions...")
+        suggested_tags = merger.collect_suggested_new_tags(predictions)
+        if suggested_tags:
+            logger.info(f"Found {len(suggested_tags)} suggested new tags: {suggested_tags}")
+            merger.update_taxonomy_with_new_tags(suggested_tags)
         
         # Step 2: Merge candidates for each source
         logger.info("Step 2: Merging candidates...")

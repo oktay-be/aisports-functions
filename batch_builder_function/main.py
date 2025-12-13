@@ -53,6 +53,8 @@ NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 BATCH_PROCESSING_FOLDER = os.getenv('BATCH_PROCESSING_FOLDER', 'batch_processing/')
 VERTEX_AI_LOCATION = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
 VERTEX_AI_MODEL = os.getenv('VERTEX_AI_MODEL', 'gemini-2.5-pro')
+TAXONOMY_BUCKET = os.getenv('TAXONOMY_BUCKET', 'aisports-scraping')
+TAXONOMY_PATH = os.getenv('TAXONOMY_PATH', 'taxonomy/tag_taxonomy.json')
 
 
 class BatchBuilder:
@@ -65,6 +67,7 @@ class BatchBuilder:
         """Initialize the batch builder with Vertex AI client."""
         self.genai_client = None
         self.storage_client = storage_client
+        self._taxonomy_cache = None
         
         if ENVIRONMENT != 'local':
             try:
@@ -85,6 +88,31 @@ class BatchBuilder:
             except Exception as e:
                 logger.error(f"Failed to initialize Vertex AI client: {e}")
                 self.genai_client = None
+
+    def load_taxonomy_from_gcs(self) -> List[str]:
+        """
+        Load the tag taxonomy from GCS.
+        
+        Returns:
+            List of allowed tag strings
+        """
+        if self._taxonomy_cache is not None:
+            return self._taxonomy_cache
+            
+        try:
+            bucket = self.storage_client.bucket(TAXONOMY_BUCKET)
+            blob = bucket.blob(TAXONOMY_PATH)
+            content = blob.download_as_text()
+            taxonomy_data = json.loads(content)
+            
+            self._taxonomy_cache = taxonomy_data.get('tags', [])
+            logger.info(f"Loaded {len(self._taxonomy_cache)} tags from taxonomy: gs://{TAXONOMY_BUCKET}/{TAXONOMY_PATH}")
+            return self._taxonomy_cache
+            
+        except Exception as e:
+            logger.error(f"Error loading taxonomy from GCS: {e}")
+            # Return empty list if taxonomy unavailable - prompt will work without strict enforcement
+            return []
 
     def extract_path_info_from_source_files(self, source_files: List[str]) -> tuple:
         """
@@ -139,11 +167,35 @@ class BatchBuilder:
     def load_prompt_template(self) -> str:
         """
         Load the PROMPT.md template for processing session data.
+        Injects the current tag taxonomy from GCS.
         
         Returns:
-            str: The prompt template content
+            str: The prompt template content with taxonomy injected
         """
         try:
+            # Load taxonomy from GCS
+            allowed_tags = self.load_taxonomy_from_gcs()
+            
+            # Format tags for prompt injection
+            if allowed_tags:
+                tags_list = "\n".join([f"- `{tag}`" for tag in allowed_tags])
+                taxonomy_section = f"""## ALLOWED TAGS (STRICT)
+
+You MUST select tags from this list. For non-football sports (basketball, volleyball, etc.), use ONLY the sport name tag.
+
+**Available Tags:**
+{tags_list}
+
+**IMPORTANT:** 
+- Select from the above list whenever possible
+- If NO existing tag adequately describes the article, you may propose a NEW tag
+- New tags must follow the hyphenated format (e.g., `new-category-name`)
+- Use `suggested_new_tags` field to propose new tags with justification
+"""
+            else:
+                taxonomy_section = ""
+                logger.warning("No taxonomy loaded - prompt will use unrestricted tagging")
+            
             # Look for PROMPT.md in the legacy directory first, then in current directory
             prompt_paths = [
                 Path(__file__).parent.parent / "legacy_monolithic_code" / "PROMPT.md",
@@ -155,8 +207,10 @@ class BatchBuilder:
                     with open(prompt_path, 'r', encoding='utf-8') as f:
                         prompt_content = f.read()
                     
-                    # Construct the complete prompt
+                    # Construct the complete prompt with taxonomy injected
                     combined_prompt = f"""{prompt_content}
+
+{taxonomy_section}
 
 ## SESSION DATA TO PROCESS
 
