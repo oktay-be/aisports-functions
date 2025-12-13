@@ -212,10 +212,27 @@ Add to each consolidated article:
   - If `language` IS "turkish", the `summary_translation` field should be null or empty.
 - **X Post Generation**:
   - Create an `x_post` field for EVERY article.
-  - This must be a short, engaging social media post derived from the summary.
   - **Constraint**: Maximum 280 characters.
   - **Language**: ALWAYS in Turkish, regardless of the article's original language.
-  - Use appropriate hashtags (e.g., #Fenerbahçe, #Transfer, #Futbol).
+  - Use 1-2 relevant hashtags at the end (e.g., #Fenerbahçe #Transfer).
+  
+  **CRITICAL - X Post Quality Rules**:
+  - **MUST CONVEY ACTUAL INFORMATION**: The post must contain the key facts from the article, not just tease them.
+  - **NO CLICKBAIT**: Never use phrases like "İşte detaylar...", "İşte yorumları!", "Bomba iddia!", "Çarpıcı açıklamalar!" without actual content.
+  - **NO CHAIN-POST STYLE**: The post must be complete and standalone, not an introduction to more content.
+  - **INCLUDE SPECIFICS**: Names, numbers, scores, amounts, dates - the actual news.
+  
+  **BAD Example** (DO NOT DO THIS):
+  ```
+  "Rıdvan Dilmen, Avrupa Ligi favorilerini açıkladı! 🏆 Fred'in performansı, Mert Müldür'ün durumu... İşte çarpıcı yorumları! #Fenerbahçe"
+  ```
+  This is BAD because it teases information without delivering it.
+  
+  **GOOD Example**:
+  ```
+  "Dilmen: Avrupa Ligi finali için Fenerbahçe, Aston Villa, Porto, Lyon, Stuttgart ve Roma favori. İdeal orta saha: İsmail Yüksek-Fred-Talisca. Fred iyi oynarken çıkarılmamalı. #Fenerbahçe #UEL"
+  ```
+  This is GOOD because it delivers the actual insights and opinions.
 
 ### 12. Final Validation
 
