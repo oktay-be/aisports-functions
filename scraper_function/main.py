@@ -3,7 +3,6 @@ import json
 import base64
 import asyncio
 import logging
-import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -15,10 +14,8 @@ except ImportError:
     JOURNALIST_AVAILABLE = False
     Journalist = None
 
-# Import article ID utility
-import sys
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from utils.article_id import generate_article_id
+# Import article ID utility (local copy for Cloud Function deployment)
+from article_id import generate_article_id
 
 # Enhanced logging configuration to capture all logs including journalist library
 # Use dynamic log level from environment variable
