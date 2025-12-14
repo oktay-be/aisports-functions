@@ -203,6 +203,7 @@ async def _process_scraping_request(message_data: dict):
     persist = message_data.get("persist", True)  # Default to True if not provided
     log_level = message_data.get("log_level", JOURNALIST_LOG_LEVEL)  # Use payload log_level or env var
     collection_id = message_data.get("collection_id", "default")  # Default to "default" if not provided
+    triggered_by = message_data.get("triggered_by", "system")  # Track who triggered the scrape
 
     if not urls or not keywords:
         logger.error("Missing 'urls' or 'keywords' in the request.")
@@ -217,6 +218,7 @@ async def _process_scraping_request(message_data: dict):
         logger.info(f"Initializing Journalist with persist={persist}, scrape_depth={scrape_depth}, log_level={log_level}")
         logger.info(f"Target URLs: {urls}")
         logger.info(f"Keywords: {keywords}")
+        logger.info(f"Triggered by: {triggered_by}")
         
         journalist = Journalist(persist=persist, scrape_depth=scrape_depth)
         
@@ -356,6 +358,7 @@ async def _process_scraping_request(message_data: dict):
                     "keywords": keywords,
                     "scrape_depth": scrape_depth,
                     "persist": persist,
+                    "triggered_by": triggered_by,
                     "processed_at": datetime.now(timezone.utc).isoformat()
                 }
                 success_messages.append(success_message)
@@ -390,6 +393,7 @@ async def _process_scraping_request(message_data: dict):
                     "keywords": keywords,
                     "scrape_depth": scrape_depth,
                     "persist": persist,
+                    "triggered_by": triggered_by,
                     "processed_at": datetime.now(timezone.utc).isoformat()
                 }
                 success_messages.append(success_message)

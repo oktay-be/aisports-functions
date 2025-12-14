@@ -445,7 +445,7 @@ The data contains sports news articles that need to be processed according to th
             logger.error(f"Error submitting batch job: {e}")
             return None, None
 
-    def save_batch_metadata(self, batch_id: str, run_id: str, job_name: str, output_uri: str, source_files: List[str]) -> bool:
+    def save_batch_metadata(self, batch_id: str, run_id: str, job_name: str, output_uri: str, source_files: List[str], triggered_by: str = "system") -> bool:
         """
         Save metadata about the batch job to GCS.
         
@@ -455,6 +455,7 @@ The data contains sports news articles that need to be processed according to th
             job_name: Vertex AI batch job name
             output_uri: GCS URI where results will be stored
             source_files: List of source GCS files
+            triggered_by: Email of user who triggered the scrape (default: "system")
             
         Returns:
             True if successful, False otherwise
@@ -470,6 +471,7 @@ The data contains sports news articles that need to be processed according to th
                 "output_uri": output_uri,
                 "source_files_count": len(source_files),
                 "collection_id": collection_id,
+                "triggered_by": triggered_by,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "model": VERTEX_AI_MODEL,
                 "location": VERTEX_AI_LOCATION
@@ -539,6 +541,12 @@ async def _process_batch_request(message_data: dict):
         logger.warning(f"No run_id found in message, generated new: {run_id}")
         
     logger.info(f"Using Run ID: {run_id}")
+    
+    # Extract triggered_by from success messages (all should have the same value)
+    triggered_by = "system"  # Default value for historical/automated runs
+    if success_messages and isinstance(success_messages[0], dict):
+        triggered_by = success_messages[0].get("triggered_by", "system")
+    logger.info(f"Triggered by: {triggered_by}")
     
     logger.info(f"Total GCS files extracted from success messages: {len(gcs_files)}")
     
@@ -622,7 +630,7 @@ async def _process_batch_request(message_data: dict):
         
         # Step 5: Save batch metadata
         logger.info("Step 5: Saving batch metadata...")
-        batch_builder.save_batch_metadata(batch_id, run_id, job_name, output_uri, gcs_files)
+        batch_builder.save_batch_metadata(batch_id, run_id, job_name, output_uri, gcs_files, triggered_by)
         
         # Step 6: Publish batch job created message
         logger.info("Step 6: Publishing batch job created message...")
@@ -634,6 +642,7 @@ async def _process_batch_request(message_data: dict):
             "output_uri": output_uri,
             "source_files": gcs_files,
             "source_files_count": len(gcs_files),
+            "triggered_by": triggered_by,
             "vertex_ai_model": VERTEX_AI_MODEL,
             "vertex_ai_location": VERTEX_AI_LOCATION,
             "created_at": datetime.now(timezone.utc).isoformat(),
