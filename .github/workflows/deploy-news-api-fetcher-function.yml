@@ -1,0 +1,55 @@
+name: Deploy News API Fetcher Function
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - 'news_api_fetcher_function/**'
+      - '.github/workflows/deploy-news-api-fetcher-function.yml'
+
+  workflow_dispatch:
+
+permissions:
+  id-token: write # This is crucial for Workload Identity Federation
+  contents: read # Allow checkout action to read the repository
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Authenticate to Google Cloud (Workload Identity Federation)
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ vars.WIF_POOL_ID }}/providers/${{ vars.WIF_PROVIDER_ID }}'
+        service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+        export_environment_variables: true
+        
+    - name: Deploy Cloud Function
+      uses: google-github-actions/deploy-cloud-functions@v3
+      with:
+        name: news-api-fetch
+        runtime: python312
+        memory: 512Mi
+        cpu: 1
+        service_timeout: 300
+        max_instance_count: 1
+        min_instance_count: 0
+        max_instance_request_concurrency: 1
+        entry_point: news_api_fetch
+        source_dir: news_api_fetcher_function
+        event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
+        event_trigger_pubsub_topic: projects/${{ vars.GOOGLE_CLOUD_PROJECT }}/topics/${{ vars.NEWS_API_REQUESTS_TOPIC }}
+        region: ${{ vars.REGION }}
+        environment_variables: |
+          GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
+          GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
+          NEWS_DATA_ROOT_PREFIX=${{ vars.NEWS_DATA_ROOT_PREFIX }}
+          LOG_LEVEL=INFO
+          ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
+        service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
