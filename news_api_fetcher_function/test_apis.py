@@ -5,12 +5,13 @@ Test script to fetch news from all 3 APIs and record results.
 import asyncio
 import aiohttp
 import json
+import os
 from datetime import datetime, timedelta
 
-# API Keys from .env
-NEWSAPI_KEY = "7d518cdcc9ca4ccba0040eaf1e6334af"
-WORLDNEWSAPI_KEY = "552686d97e124e3e856ea305e9c91b20"
-GNEWS_API_KEY = "239e1985eb546d6ff7db252e3195c69a"
+# API Keys from environment variables
+NEWSAPI_KEY = os.getenv("NEWSAPI_KEY", "")
+WORLDNEWSAPI_KEY = os.getenv("WORLDNEWSAPI_KEY", "")
+GNEWS_API_KEY = os.getenv("GNEWS_API_KEY", "")
 
 KEYWORDS = ["fenerbahce", "galatasaray", "tedesco"]
 
