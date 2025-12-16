@@ -113,7 +113,7 @@ async def fetch_and_store_news(message_data: dict) -> dict:
     keywords = message_data.get('keywords', DEFAULT_KEYWORDS)
     triggered_by = message_data.get('triggered_by', 'scheduler')
     time_range = message_data.get('time_range', 'last_24_hours')
-    max_results = message_data.get('max_results', 50)
+    max_results = message_data.get('max_results', 100)
     
     logger.info(f"Starting news API fetch - Keywords: {keywords}, Triggered by: {triggered_by}")
     
