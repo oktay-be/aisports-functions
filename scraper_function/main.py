@@ -1,10 +1,10 @@
 import os
+import sys
 import json
 import base64
 import asyncio
 import logging
-import sys
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 from google.cloud import pubsub_v1, storage
@@ -14,6 +14,9 @@ try:
 except ImportError:
     JOURNALIST_AVAILABLE = False
     Journalist = None
+
+# Import article ID utility (local copy for Cloud Function deployment)
+from article_id import generate_article_id
 
 # Enhanced logging configuration to capture all logs including journalist library
 # Use dynamic log level from environment variable
@@ -46,8 +49,145 @@ PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT', 'gen-lang-client-0306766464')
 SESSION_DATA_CREATED_TOPIC = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-data-created')
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
-ARTICLES_SUBFOLDER = os.getenv('ARTICLES_SUBFOLDER', 'articles/')
 # JOURNALIST_LOG_LEVEL already defined above for logging configuration
+
+def is_first_run_of_day(storage_client, bucket_name, date_obj, collection_id="default"):
+    """
+    Check if this is the first run of the day by checking if the batch_processing folder exists for today.
+    Returns True if no batch processing has been done today (first run), False otherwise.
+    """
+    if not storage_client:
+        return False
+    
+    try:
+        current_year_month = date_obj.strftime("%Y-%m")
+        current_date = date_obj.strftime("%Y-%m-%d")
+        
+        # Check batch_processing folder: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/
+        prefix = f"{NEWS_DATA_ROOT_PREFIX}batch_processing/{collection_id}/{current_year_month}/{current_date}/"
+        
+        logger.info(f"Checking if first run of day by inspecting: {prefix}")
+        
+        bucket = storage_client.bucket(bucket_name)
+        blobs = list(bucket.list_blobs(prefix=prefix, max_results=1))
+        
+        is_first_run = len(blobs) == 0
+        logger.info(f"First run of the day: {is_first_run}")
+        
+        return is_first_run
+        
+    except Exception as e:
+        logger.error(f"Error checking first run status: {e}")
+        # Default to False (assume not first run) to avoid over-fetching
+        return False
+
+def get_processed_urls_last_n_days(storage_client, bucket_name, date_obj, collection_id="default", days=7):
+    """
+    Retrieves a set of already processed URLs from source session data for the last N days.
+    Used when it's the first run of the day to avoid re-scraping recent articles.
+    """
+    processed_urls = set()
+    if not storage_client:
+        return processed_urls
+    
+    try:
+        bucket = storage_client.bucket(bucket_name)
+        
+        logger.info(f"Fetching processed URLs from last {days} days for collection '{collection_id}'")
+        
+        # Iterate through the last N days
+        for day_offset in range(days):
+            check_date = date_obj - timedelta(days=day_offset)
+            year_month = check_date.strftime("%Y-%m")
+            date_str = check_date.strftime("%Y-%m-%d")
+            
+            # Prefix: news_data/sources/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/
+            prefix = f"{NEWS_DATA_ROOT_PREFIX}sources/{collection_id}/{year_month}/{date_str}/"
+            
+            logger.info(f"  Scanning day {day_offset + 1}/{days}: {date_str} (prefix: {prefix})")
+            
+            blobs = bucket.list_blobs(prefix=prefix)
+            
+            source_files = []
+            for blob in blobs:
+                # Check for session_data_*.json files
+                if blob.name.endswith(".json") and "session_data_" in blob.name:
+                    source_files.append(blob)
+            
+            logger.info(f"    Found {len(source_files)} source session files for {date_str}")
+            
+            for blob in source_files:
+                try:
+                    content = blob.download_as_text()
+                    data = json.loads(content)
+                    
+                    articles = data.get("articles", [])
+                    for article in articles:
+                        # Check various common fields for URL
+                        url = article.get("url") or article.get("link") or article.get("original_url")
+                        if url:
+                            processed_urls.add(url)
+                            
+                except Exception as e:
+                    logger.warning(f"Error reading/parsing blob {blob.name}: {e}")
+        
+        logger.info(f"Total unique processed URLs found in last {days} days: {len(processed_urls)}")
+        
+    except Exception as e:
+        logger.error(f"Error fetching processed URLs from last {days} days: {e}")
+    
+    return processed_urls
+
+def get_processed_urls_for_date(storage_client, bucket_name, date_obj, collection_id="default"):
+    """
+    Retrieves a set of already processed URLs from raw source session data for the given date and collection.
+    This ensures we don't re-scrape or re-process articles that have already been collected today.
+    """
+    processed_urls = set()
+    if not storage_client:
+        return processed_urls
+
+    try:
+        current_year_month = date_obj.strftime("%Y-%m")
+        current_date = date_obj.strftime("%Y-%m-%d")
+        
+        # Prefix: news_data/sources/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/
+        prefix = f"{NEWS_DATA_ROOT_PREFIX}sources/{collection_id}/{current_year_month}/{current_date}/"
+        
+        logger.info(f"Checking for existing processed URLs in source files: {prefix}")
+        
+        bucket = storage_client.bucket(bucket_name)
+        blobs = bucket.list_blobs(prefix=prefix)
+        
+        source_files = []
+        for blob in blobs:
+            # Check for session_data_*.json files
+            if blob.name.endswith(".json") and "session_data_" in blob.name:
+                source_files.append(blob)
+        
+        logger.info(f"Found {len(source_files)} source session files to check for duplicates")
+        
+        for blob in source_files:
+            try:
+                content = blob.download_as_text()
+                data = json.loads(content)
+                
+                articles = data.get("articles", [])
+                for article in articles:
+                    # Check various common fields for URL
+                    url = article.get("url") or article.get("link") or article.get("original_url")
+                    if url:
+                        processed_urls.add(url)
+                        
+            except Exception as e:
+                logger.warning(f"Error reading/parsing blob {blob.name}: {e}")
+                
+        logger.info(f"Total unique processed URLs found for today in source files: {len(processed_urls)}")
+        
+    except Exception as e:
+        logger.error(f"Error fetching processed URLs: {e}")
+        
+    return processed_urls
 
 async def _process_scraping_request(message_data: dict):
     """
@@ -62,6 +202,8 @@ async def _process_scraping_request(message_data: dict):
     scrape_depth = message_data.get("scrape_depth", 1)  # Default to 1 if not provided
     persist = message_data.get("persist", True)  # Default to True if not provided
     log_level = message_data.get("log_level", JOURNALIST_LOG_LEVEL)  # Use payload log_level or env var
+    collection_id = message_data.get("collection_id", "default")  # Default to "default" if not provided
+    triggered_by = message_data.get("triggered_by", "system")  # Track who triggered the scrape
 
     if not urls or not keywords:
         logger.error("Missing 'urls' or 'keywords' in the request.")
@@ -76,12 +218,17 @@ async def _process_scraping_request(message_data: dict):
         logger.info(f"Initializing Journalist with persist={persist}, scrape_depth={scrape_depth}, log_level={log_level}")
         logger.info(f"Target URLs: {urls}")
         logger.info(f"Keywords: {keywords}")
+        logger.info(f"Triggered by: {triggered_by}")
         
         journalist = Journalist(persist=persist, scrape_depth=scrape_depth)
         
         # Start timing the scraping operation
         start_time = datetime.now(timezone.utc)
         logger.info(f"Scraping started at: {start_time.isoformat()}")
+        
+        # Generate Run ID for this execution
+        run_id = f"run_{start_time.strftime('%H-%M-%S')}"
+        logger.info(f"Generated Run ID: {run_id}")
         
         # Perform scraping with enhanced logging
         logger.info("Starting scraping operation...")
@@ -125,9 +272,54 @@ async def _process_scraping_request(message_data: dict):
         # Initialize list to accumulate success messages for batch publishing
         success_messages = []
         
+        # Fetch processed URLs for deduplication
+        processed_urls = set()
+        if ENVIRONMENT != 'local':
+            # Check if this is the first run of the day
+            first_run = is_first_run_of_day(storage_client, GCS_BUCKET_NAME, start_time, collection_id)
+            
+            if first_run:
+                logger.info("First run of the day detected - scanning last 7 days for deduplication")
+                processed_urls = get_processed_urls_last_n_days(storage_client, GCS_BUCKET_NAME, start_time, collection_id, days=7)
+            else:
+                logger.info("Subsequent run - scanning only today's data for deduplication")
+                processed_urls = get_processed_urls_for_date(storage_client, GCS_BUCKET_NAME, start_time, collection_id)
+
         # Process each session
         for i, session in enumerate(source_sessions):
-            logger.info(f"Processing session {i+1}/{len(source_sessions)}")            # Extract domain from session or URL and make it filesystem-safe
+            logger.info(f"Processing session {i+1}/{len(source_sessions)}")
+            
+            # Deduplicate articles
+            articles = session.get("articles", [])
+            unique_articles = []
+            dropped_articles = []
+            
+            for article in articles:
+                # Check various common fields for URL
+                url = article.get("url") or article.get("link") or article.get("original_url")
+                if url and url in processed_urls:
+                    dropped_articles.append(article)
+                else:
+                    # Generate unique article ID based on URL
+                    if url:
+                        article["article_id"] = generate_article_id(url)
+                    unique_articles.append(article)
+                    if url:
+                        processed_urls.add(url)
+            
+            if dropped_articles:
+                logger.info(f"Dropped {len(dropped_articles)} duplicate articles for session {i+1}")
+                session["articles"] = unique_articles
+                # We do not store the dropped articles to keep the file size small
+                session["articles_count"] = len(unique_articles)
+                session["dropped_articles_count"] = len(dropped_articles)
+            
+            # Check if there are any articles left after deduplication
+            if not session.get("articles"):
+                logger.warning(f"No articles found for session {i+1} (source: {session.get('source_domain', 'unknown')}) after deduplication. Skipping storage.")
+                continue
+
+            # Extract domain from session or URL and make it filesystem-safe
             from werkzeug.utils import secure_filename
             source_domain = session.get("source_domain", "unknown_source")
             if not source_domain or source_domain == "unknown_source":
@@ -148,21 +340,25 @@ async def _process_scraping_request(message_data: dict):
             logger.info(f"  - Articles count: {articles_count}")
             
             # Construct GCS path based on new structure
-            current_date_path = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-              # Example: news_data/sources/bbc/2025-07-19/articles/session_data_bbc_com_uk_001.json
-            gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{source_domain}/{current_date_path}/{ARTICLES_SUBFOLDER}session_data_{source_domain}_{session_id}.json"
+            current_year_month = start_time.strftime("%Y-%m")
+            current_date = start_time.strftime("%Y-%m-%d")
+            
+            # New structure: news_data/sources/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{source_domain}/session_data_{source_domain}_{session_id}.json
+            gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{collection_id}/{current_year_month}/{current_date}/{source_domain}/session_data_{source_domain}_{session_id}.json"
 
             if ENVIRONMENT == 'local':                
                 # Create success message for batch processing
                 success_message = {
                     "status": "success",
+                    "run_id": run_id,
                     "source_domain": source_domain,
                     "session_id": session_id,
-                    "date_path": current_date_path,
+                    "date_path": current_date,
                     "articles_count": articles_count,
                     "keywords": keywords,
                     "scrape_depth": scrape_depth,
                     "persist": persist,
+                    "triggered_by": triggered_by,
                     "processed_at": datetime.now(timezone.utc).isoformat()
                 }
                 success_messages.append(success_message)
@@ -188,14 +384,16 @@ async def _process_scraping_request(message_data: dict):
                 # Create success message for batch processing
                 success_message = {
                     "status": "success",
+                    "run_id": run_id,
                     "gcs_path": f"gs://{GCS_BUCKET_NAME}/{gcs_object_path}",
                     "source_domain": source_domain,
                     "session_id": session_id,
-                    "date_path": current_date_path,
+                    "date_path": current_date,
                     "articles_count": articles_count,
                     "keywords": keywords,
                     "scrape_depth": scrape_depth,
                     "persist": persist,
+                    "triggered_by": triggered_by,
                     "processed_at": datetime.now(timezone.utc).isoformat()
                 }
                 success_messages.append(success_message)
@@ -215,6 +413,7 @@ async def _process_scraping_request(message_data: dict):
                     # Create batch message containing all success messages
                     batch_message = {
                         "status": "batch_success",
+                        "run_id": run_id,
                         "batch_size": len(success_messages),
                         "success_messages": success_messages,
                         "batch_processed_at": datetime.now(timezone.utc).isoformat(),

@@ -1,4 +1,4 @@
-name: Deploy Scraper Function
+name: Deploy News API Fetcher Function
 
 on:
   push:
@@ -6,9 +6,8 @@ on:
       - main
       - dev
     paths:
-      - 'scraper_function/**'
-      - 'shared_libs/**'
-      - '.github/workflows/deploy-scraper-function.yml'
+      - 'news_api_fetcher_function/**'
+      - '.github/workflows/deploy-news-api-fetcher-function.yml'
 
   workflow_dispatch:
 
@@ -34,24 +33,23 @@ jobs:
     - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v3
       with:
-        name: scrape-and-store
+        name: news-api-fetch
         runtime: python312
-        memory: 2Gi
+        memory: 512Mi
         cpu: 1
-        service_timeout: 540
+        service_timeout: 300
         max_instance_count: 1
         min_instance_count: 0
         max_instance_request_concurrency: 1
-        entry_point: scrape_and_store
-        source_dir: scraper_function
+        entry_point: news_api_fetch
+        source_dir: news_api_fetcher_function
         event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
-        event_trigger_pubsub_topic: projects/${{ vars.GOOGLE_CLOUD_PROJECT }}/topics/${{ vars.SCRAPING_REQUESTS_TOPIC }}
+        event_trigger_pubsub_topic: projects/${{ vars.GOOGLE_CLOUD_PROJECT }}/topics/${{ vars.NEWS_API_REQUESTS_TOPIC }}
         region: ${{ vars.REGION }}
         environment_variables: |
           GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
           GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
-          SESSION_DATA_CREATED_TOPIC=${{ vars.SESSION_DATA_CREATED_TOPIC }}
           NEWS_DATA_ROOT_PREFIX=${{ vars.NEWS_DATA_ROOT_PREFIX }}
-          JOURNALIST_LOG_LEVEL=INFO
+          LOG_LEVEL=INFO
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}

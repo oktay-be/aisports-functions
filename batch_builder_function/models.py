@@ -19,6 +19,16 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                 "custom_categories_added": {
                     "type": "ARRAY",
                     "items": {"type": "STRING"}
+                },
+                "suggested_new_tags": {
+                    "type": "ARRAY",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "tag": {"type": "STRING"},
+                            "justification": {"type": "STRING"}
+                        }
+                    }
                 }
             },
             "required": ["total_input_articles", "processing_date"]
@@ -28,7 +38,7 @@ VERTEX_AI_RESPONSE_SCHEMA = {
             "items": {
                 "type": "OBJECT",
                 "properties": {
-                    "id": {"type": "STRING"},
+                    "article_id": {"type": "STRING"},
                     "original_url": {"type": "STRING"},
                     "title": {"type": "STRING"},
                     "summary": {"type": "STRING"},
@@ -56,9 +66,11 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                     "published_date": {"type": "STRING", "nullable": True},
                     "keywords_matched": {"type": "ARRAY", "items": {"type": "STRING"}},
                     "content_quality": {"type": "STRING"},
-                    "language": {"type": "STRING"}
+                    "language": {"type": "STRING"},
+                    "summary_translation": {"type": "STRING"},
+                    "x_post": {"type": "STRING"}
                 },
-                "required": ["id", "title", "summary", "categories", "source"]
+                "required": ["article_id", "title", "summary", "categories", "source", "x_post"]
             }
         }
     },

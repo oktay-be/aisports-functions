@@ -10,7 +10,19 @@ You will receive a JSON file containing scraped European sports news articles wi
 
 ## PROCESSING REQUIREMENTS
 
-### 1. DEDUPLICATION
+### 1. ARTICLE ID PRESERVATION (CRITICAL)
+- Each input article contains an `article_id` field - this is a pre-generated unique identifier
+- **DO NOT GENERATE NEW IDs**: Copy the `article_id` exactly from the input article to the output
+- The `article_id` is used for tracking articles across the entire pipeline
+
+### 2. LANGUAGE PRESERVATION (CRITICAL)
+- **DO NOT TRANSLATE**: The `title` and `summary` MUST be in the **original language** of the source article.
+- If the article is in Turkish, the summary must be in Turkish.
+- If the article is in Spanish, the summary must be in Spanish.
+- If the article is in English, the summary must be in English.
+- The `language` field in the output should indicate the detected language (e.g., "turkish", "spanish", "english").
+
+### 2. DEDUPLICATION
 - Remove duplicate articles based on:
   - Identical or very similar titles (≥90% similarity)
   - Same URL or same content body
@@ -18,13 +30,14 @@ You will receive a JSON file containing scraped European sports news articles wi
 - Keep the most complete version (with most content) when duplicates are found
 - Log how many duplicates were removed
 
-### 2. DATA CLEANING
+### 3. DATA CLEANING
 - Remove articles with missing or empty `title` and `body` fields
 - Clean up repeated content within article bodies (remove excessive repetition)
 - Normalize special characters and encoding issues
 - Remove navigation elements, advertisements, and non-news content from body text
 
-### 3. SUMMARIZATION
+### 4. SUMMARIZATION
+- **LANGUAGE:** The summary MUST be written in the **SAME LANGUAGE** as the original article. Do NOT translate.
 - Create a comprehensive summary that preserves all important information (no strict sentence limit)
 - Include ALL key details: player names, team names, transfer amounts, dates, sources, quotes
 - Capture the main news event, supporting details, and context
@@ -32,72 +45,36 @@ You will receive a JSON file containing scraped European sports news articles wi
 - Maintain factual accuracy while condensing repetitive or redundant content
 - Ensure no critical information is lost during the summarization process
 
-### 4. PRECISE CLASSIFICATION
-Classify each article with multiple relevant category tags from this taxonomy. **You are NOT restricted to this taxonomy** - feel free to add new categories or subcategories if the content requires more specific classification:
+### 5. PRECISE CLASSIFICATION
+Classify each article using tags from the **ALLOWED TAGS** list provided at the end of this prompt. 
 
-**TRANSFER CATEGORIES:**
-- `transfers_confirmed` - Official, completed transfers
-- `transfers_rumors` - Unconfirmed transfer speculation
-- `transfers_negotiations` - Ongoing transfer talks/meetings
-- `transfers_interest` - Club interest or scouting
-- `contract_renewals` - Contract extensions
-- `contract_disputes` - Contract disagreements
-- `departures` - Players leaving clubs
+**CRITICAL RULES:**
+- For **basketball** articles: Use ONLY the tag `basketball`
+- For **volleyball** articles: Use ONLY the tag `volleyball`  
+- For **other non-football sports**: Use ONLY the tag `other-sports`
+- For **football** articles: Select appropriate tags from the allowed list (multiple tags encouraged)
 
-**RIVALRY CATEGORIES:**
-- `team_rivalry` - Competition between clubs (local derbies, historic rivalries, etc.)
-- `personal_rivalry` - Individual player/coach conflicts
-- `fan_rivalry` - Supporter-related tensions
+**If no existing tag fits:**
+- You may propose a NEW tag using the `suggested_new_tags` field
+- New tags must use hyphenated format: `new-category-name`
+- Provide justification for why no existing tag fits
 
-**SCANDAL/CONTROVERSY:**
-- `field_incidents` - On-field fights, red cards, referee disputes
-- `off_field_scandals` - Personal conduct, legal issues
-- `corruption_allegations` - Match fixing, bribery claims
-- `disciplinary_actions` - Suspensions, fines, sanctions
-
-**POLITICS IN SPORTS:**
-- `elections_management` - Club presidential elections, board changes
-- `federation_politics` - National federation matters (FA, FIGC, DFB, etc.)
-- `government_sports` - State involvement in sports
-- `policy_changes` - Rule changes, regulations
-- `uefa_fifa_matters` - European and international governing body decisions
-
-**PERFORMANCE & COMPETITION:**
-- `match_results` - Game outcomes and analysis
-- `performance_analysis` - Player/team performance evaluation
-- `tactical_analysis` - Coach strategies and formations
-- `injury_news` - Player injuries and recovery
-- `squad_changes` - Lineup modifications
-
-**BUSINESS & FINANCE:**
-- `financial_news` - Club finances, debt, revenue
-- `sponsorship_deals` - Commercial partnerships
-- `stadium_infrastructure` - Facility developments
-
-**LEAGUE & COMPETITION:**
-- `league_standings` - Table positions, points, relegation battles
-- `european_competitions` - Champions League, Europa League, Conference League
-- `domestic_cups` - National cup competitions
-- `international_tournaments` - World Cup, Euros, Nations League
-- `youth_competitions` - U21, academy tournaments
-
-**GOSSIP & ENTERTAINMENT:**
-- `personal_life` - Player personal matters (non-scandalous)
-- `social_media` - Player social media activities
-- `lifestyle_news` - Player lifestyle coverage
-
-**ADDITIONAL CATEGORIES:**
-- Add new categories as needed based on the specific content
-- Use descriptive names following the same naming convention (lowercase_with_underscores)
-- Provide clear descriptions for any new categories you create
-
-### 5. CONFIDENCE SCORING
+### 6. CONFIDENCE SCORING
 For each category assignment, provide a confidence score (0.0-1.0):
 - 1.0: Explicitly stated facts with evidence
 - 0.8: Strong indications with supporting details
 - 0.6: Moderate indications based on context
 - 0.4: Weak indications, mostly speculation
 - 0.2: Minimal indication, mostly assumed
+
+### 7. TRANSLATION & SOCIAL MEDIA
+- **Summary Translation**:
+  - If the article is NOT in Turkish, provide a Turkish translation of the summary in `summary_translation`.
+  - If the article IS in Turkish, leave `summary_translation` as null or empty string.
+- **X Post**:
+  - Generate a short, engaging tweet (max 280 chars) in `x_post`.
+  - **Language**: ALWAYS Turkish.
+  - Include relevant hashtags.
 
 ## OUTPUT FORMAT
 
@@ -111,14 +88,19 @@ Return a JSON object with this exact structure:
     "duplicates_removed": 0,
     "empty_articles_removed": 0,
     "processing_date": "2025-06-21T00:00:00Z",
-    "custom_categories_added": ["new_category1", "new_category2"]
+    "suggested_new_tags": [
+      {
+        "tag": "new-tag-name",
+        "justification": "Reason why no existing tag fits this content"
+      }
+    ]
   },
   "processed_articles": [
     {
-      "id": "unique_identifier",
+      "article_id": "preserve_from_input",
       "original_url": "source_url",
-      "title": "cleaned_title",
-      "summary": "Comprehensive summary preserving all key information, quotes, amounts, dates, and context",
+      "title": "cleaned_title (in original language)",
+      "summary": "Comprehensive summary in ORIGINAL LANGUAGE preserving all key information, quotes, amounts, dates, and context",
       "key_entities": {
         "teams": ["team1", "team2"],
         "players": ["player1", "player2"],
@@ -127,12 +109,12 @@ Return a JSON object with this exact structure:
       },
       "categories": [
         {
-          "tag": "transfers_rumors",
+          "tag": "transfers-rumors",
           "confidence": 0.8,
           "evidence": "Article mentions unconfirmed interest from Italian clubs"
         },
         {
-          "tag": "contract_disputes", 
+          "tag": "contract-disputes", 
           "confidence": 0.6,
           "evidence": "Player reportedly unhappy with contract terms"
         }
@@ -141,7 +123,9 @@ Return a JSON object with this exact structure:
       "published_date": "2025-06-21T09:20:50+03:00",
       "keywords_matched": ["real madrid", "transfer"],
       "content_quality": "high|medium|low",
-      "language": "spanish"
+      "language": "spanish",
+      "summary_translation": "Real Madrid transferi hakkında Türkçe özet...",
+      "x_post": "Real Madrid'den flaş transfer hamlesi! 🚨 İspanyol devi genç yıldız için harekete geçti. #RealMadrid #Transfer"
     }
   ]
 }
@@ -151,10 +135,16 @@ Return a JSON object with this exact structure:
 
 **Be precise and evidence-based:**
 - Only assign categories that are clearly supported by the article content
-- Multiple categories are encouraged when appropriate
+- Multiple categories are encouraged for football articles
 - Provide specific evidence quotes for each category assignment
 - Use higher confidence scores for concrete facts, lower for speculation
-- Feel free to create new categories if existing ones don't adequately describe the content
+- Only propose new tags via `suggested_new_tags` if NO existing tag fits
+
+**Sport-Specific Rules:**
+- **Basketball**: Use ONLY the `basketball` tag
+- **Volleyball**: Use ONLY the `volleyball` tag
+- **Other sports** (tennis, F1, etc.): Use ONLY the `other-sports` tag
+- **Football**: Use multiple tags from the allowed list as appropriate
 
 **European Football Context:**
 - Understand major European leagues: Premier League, La Liga, Serie A, Bundesliga, Ligue 1, etc.
@@ -168,6 +158,7 @@ Return a JSON object with this exact structure:
 - Identify the stage of transfer process (interest, negotiations, completion)
 
 ## QUALITY REQUIREMENTS
+- **LANGUAGE:** Summaries MUST be in the original language.
 - Every article must have at least one category with confidence ≥ 0.6
 - Summaries must be comprehensive and factual, preserving all important information without data loss
 - All monetary amounts and dates must be preserved accurately

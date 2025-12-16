@@ -1,0 +1,262 @@
+Folder Structure for gs://aisports-scraping/news_data:
+
+├── batch_processing
+│   ├── eu
+│   │   └── 2025-11
+│   │       ├── 2025-11-21
+│   │       │   └── run_23-36-18
+│   │       │       ├── metadata.json
+│   │       │       ├── stage1_extraction
+│   │       │       │   ├── requests
+│   │       │       │   │   └── request.jsonl
+│   │       │       │   └── results
+│   │       │       │       └── prediction-model-2025-11-21T23:36:57.561338Z
+│   │       │       │           └── predictions.jsonl
+│   │       │       └── stage2_deduplication
+│   │       │           ├── input_merged_data
+│   │       │           │   ├── merged_session_data_rmcsport_bfmtv_com_20251121_233618_134912.json
+│   │       │           │   ├── merged_session_data_sport_sky_de_20251121_233618_134912.json      
+│   │       │           │   ├── merged_session_data_www_bbc_com_20251121_233618_134912.json       
+│   │       │           │   ├── merged_session_data_www_calciomercato_com_20251121_233618_134912.json
+│   │       │           │   ├── merged_session_data_www_corrieredellosport_it_20251121_233618_134912.json
+│   │       │           │   ├── merged_session_data_www_espn_co_uk_20251121_233618_134912.json    
+│   │       │           │   ├── merged_session_data_www_footmercato_net_20251121_233618_134912.json
+│   │       │           │   ├── merged_session_data_www_francefootball_fr_20251121_233618_134912.json
+│   │       │           │   ├── merged_session_data_www_kicker_de_20251121_233618_134912.json     
+│   │       │           │   ├── merged_session_data_www_leparisien_fr_20251121_233618_134912.json 
+│   │       │           │   ├── merged_session_data_www_lequipe_fr_20251121_233618_134912.json    
+│   │       │           │   ├── merged_session_data_www_skysports_com_20251121_233618_134912.json 
+│   │       │           │   ├── merged_session_data_www_sport1_de_20251121_233618_134912.json     
+│   │       │           │   ├── merged_session_data_www_sport_de_20251121_233618_134912.json      
+│   │       │           │   ├── merged_session_data_www_telegraph_co_uk_20251121_233618_134912.json
+│   │       │           │   └── merged_session_data_www_tuttosport_com_20251121_233618_134912.json
+│   │       │           ├── requests
+│   │       │           │   └── request.jsonl
+│   │       │           └── results
+│   │       │               └── prediction-model-2025-11-21T23:41:54.602250Z
+│   │       │                   └── predictions.jsonl
+│   │       └── 2025-11-22
+│   │           ├── run_00-03-00
+│   │           │   ├── metadata.json
+│   │           │   ├── stage1_extraction
+│   │           │   │   ├── requests
+│   │           │   │   │   └── request.jsonl
+│   │           │   │   └── results
+│   │           │   │       └── prediction-model-2025-11-22T00:03:35.390241Z
+│   │           │   │           └── predictions.jsonl
+│   │           │   └── stage2_deduplication
+│   │           │       ├── input_merged_data
+│   │           │       │   ├── merged_session_data_rmcsport_bfmtv_com_20251122_000300_296807.json
+│   │           │       │   ├── merged_session_data_sport_sky_de_20251122_000300_296807.json      
+│   │           │       │   ├── merged_session_data_www_bbc_com_20251122_000300_296807.json       
+│   │           │       │   ├── merged_session_data_www_calciomercato_com_20251122_000300_296807.json
+│   │           │       │   ├── merged_session_data_www_corrieredellosport_it_20251122_000300_296807.json
+│   │           │       │   ├── merged_session_data_www_espn_co_uk_20251122_000300_296807.json    
+│   │           │       │   ├── merged_session_data_www_footmercato_net_20251122_000300_296807.json
+│   │           │       │   ├── merged_session_data_www_francefootball_fr_20251122_000300_296807.json
+│   │           │       │   ├── merged_session_data_www_kicker_de_20251122_000300_296807.json     
+│   │           │       │   ├── merged_session_data_www_leparisien_fr_20251122_000300_296807.json 
+│   │           │       │   ├── merged_session_data_www_lequipe_fr_20251122_000300_296807.json    
+│   │           │       │   ├── merged_session_data_www_skysports_com_20251122_000300_296807.json 
+│   │           │       │   ├── merged_session_data_www_sport1_de_20251122_000300_296807.json     
+│   │           │       │   ├── merged_session_data_www_sport_de_20251122_000300_296807.json      
+│   │           │       │   ├── merged_session_data_www_telegraph_co_uk_20251122_000300_296807.json
+│   │           │       │   └── merged_session_data_www_tuttosport_com_20251122_000300_296807.json
+│   │           │       ├── requests
+│   │           │       │   └── request.jsonl
+│   │           │       └── results
+│   │           │           └── prediction-model-2025-11-22T00:08:11.408476Z
+│   │           │               └── predictions.jsonl
+│   │           └── run_00-27-08
+│   │               ├── metadata.json
+│   │               ├── stage1_extraction
+│   │               │   ├── requests
+│   │               │   │   └── request.jsonl
+│   │               │   └── results
+│   │               │       └── prediction-model-2025-11-22T00:27:46.123529Z
+│   │               │           └── predictions.jsonl
+│   │               └── stage2_deduplication
+│   │                   ├── input_merged_data
+│   │                   │   └── merged_session_data_www_sport_de_20251122_002708_072452.json      
+│   │                   ├── requests
+│   │                   │   └── request.jsonl
+│   │                   └── results
+│   │                       └── prediction-model-2025-11-22T00:31:39.772875Z
+│   │                           └── predictions.jsonl
+│   └── tr
+│       └── 2025-11
+│           ├── 2025-11-21
+│           │   └── run_23-35-53
+│           │       ├── metadata.json
+│           │       ├── stage1_extraction
+│           │       │   ├── requests
+│           │       │   │   └── request.jsonl
+│           │       │   └── results
+│           │       │       └── prediction-model-2025-11-21T23:36:19.560443Z
+│           │       │           └── predictions.jsonl
+│           │       └── stage2_deduplication
+│           │           ├── input_merged_data
+│           │           │   ├── merged_session_data_www_fanatik_com_tr_20251121_233553_128332.json
+│           │           │   ├── merged_session_data_www_ntvspor_net_20251121_233553_128332.json   
+│           │           │   └── merged_session_data_www_trtspor_com_tr_20251121_233553_128332.json
+│           │           ├── requests
+│           │           │   └── request.jsonl
+│           │           └── results
+│           │               └── prediction-model-2025-11-21T23:42:52.622923Z
+│           │                   └── predictions.jsonl
+│           └── 2025-11-22
+│               ├── run_00-02-32
+│               │   ├── metadata.json
+│               │   ├── stage1_extraction
+│               │   │   ├── requests
+│               │   │   │   └── request.jsonl
+│               │   │   └── results
+│               │   │       └── prediction-model-2025-11-22T00:03:05.487165Z
+│               │   │           └── predictions.jsonl
+│               │   └── stage2_deduplication
+│               │       ├── input_merged_data
+│               │       │   ├── merged_session_data_www_fanatik_com_tr_20251122_000232_800572.json
+│               │       │   ├── merged_session_data_www_ntvspor_net_20251122_000232_800572.json   
+│               │       │   └── merged_session_data_www_trtspor_com_tr_20251122_000232_800572.json
+│               │       ├── requests
+│               │       │   └── request.jsonl
+│               │       └── results
+│               │           └── prediction-model-2025-11-22T00:11:00.981616Z
+│               │               └── predictions.jsonl
+│               └── run_00-17-27
+│                   ├── metadata.json
+│                   ├── stage1_extraction
+│                   │   ├── requests
+│                   │   │   └── request.jsonl
+│                   │   └── results
+│                   │       └── prediction-model-2025-11-22T00:17:57.654481Z
+│                   │           └── predictions.jsonl
+│                   └── stage2_deduplication
+│                       ├── input_merged_data
+│                       │   ├── merged_session_data_www_fanatik_com_tr_20251122_001727_763962.json
+│                       │   └── merged_session_data_www_ntvspor_net_20251122_001727_763962.json   
+│                       ├── requests
+│                       │   └── request.jsonl
+│                       └── results
+│                           └── prediction-model-2025-11-22T00:21:55.725339Z
+│                               └── predictions.jsonl
+└── sources
+    ├── eu
+    │   └── 2025-11
+    │       ├── 2025-11-21
+    │       │   ├── rmcsport_bfmtv_com
+    │       │   │   └── session_data_rmcsport_bfmtv_com_20251121_233618_134912.json
+    │       │   ├── sport_sky_de
+    │       │   │   └── session_data_sport_sky_de_20251121_233618_134912.json
+    │       │   ├── www_bbc_com
+    │       │   │   └── session_data_www_bbc_com_20251121_233618_134912.json
+    │       │   ├── www_calciomercato_com
+    │       │   │   └── session_data_www_calciomercato_com_20251121_233618_134912.json
+    │       │   ├── www_corrieredellosport_it
+    │       │   │   └── session_data_www_corrieredellosport_it_20251121_233618_134912.json        
+    │       │   ├── www_espn_co_uk
+    │       │   │   └── session_data_www_espn_co_uk_20251121_233618_134912.json
+    │       │   ├── www_footmercato_net
+    │       │   │   └── session_data_www_footmercato_net_20251121_233618_134912.json
+    │       │   ├── www_francefootball_fr
+    │       │   │   └── session_data_www_francefootball_fr_20251121_233618_134912.json
+    │       │   ├── www_kicker_de
+    │       │   │   └── session_data_www_kicker_de_20251121_233618_134912.json
+    │       │   ├── www_leparisien_fr
+    │       │   │   └── session_data_www_leparisien_fr_20251121_233618_134912.json
+    │       │   ├── www_lequipe_fr
+    │       │   │   └── session_data_www_lequipe_fr_20251121_233618_134912.json
+    │       │   ├── www_skysports_com
+    │       │   │   └── session_data_www_skysports_com_20251121_233618_134912.json
+    │       │   ├── www_sport1_de
+    │       │   │   └── session_data_www_sport1_de_20251121_233618_134912.json
+    │       │   ├── www_sport_de
+    │       │   │   └── session_data_www_sport_de_20251121_233618_134912.json
+    │       │   ├── www_telegraph_co_uk
+    │       │   │   └── session_data_www_telegraph_co_uk_20251121_233618_134912.json
+    │       │   └── www_tuttosport_com
+    │       │       └── session_data_www_tuttosport_com_20251121_233618_134912.json
+    │       └── 2025-11-22
+    │           ├── rmcsport_bfmtv_com
+    │           │   ├── session_data_rmcsport_bfmtv_com_20251122_000300_296807.json
+    │           │   ├── session_data_rmcsport_bfmtv_com_20251122_001756_239277.json
+    │           │   └── session_data_rmcsport_bfmtv_com_20251122_002708_072452.json
+    │           ├── sport_sky_de
+    │           │   ├── session_data_sport_sky_de_20251122_000300_296807.json
+    │           │   ├── session_data_sport_sky_de_20251122_001756_239277.json
+    │           │   └── session_data_sport_sky_de_20251122_002708_072452.json
+    │           ├── www_bbc_com
+    │           │   ├── session_data_www_bbc_com_20251122_000300_296807.json
+    │           │   ├── session_data_www_bbc_com_20251122_001756_239277.json
+    │           │   └── session_data_www_bbc_com_20251122_002708_072452.json
+    │           ├── www_calciomercato_com
+    │           │   ├── session_data_www_calciomercato_com_20251122_000300_296807.json
+    │           │   ├── session_data_www_calciomercato_com_20251122_001756_239277.json
+    │           │   └── session_data_www_calciomercato_com_20251122_002708_072452.json
+    │           ├── www_corrieredellosport_it
+    │           │   ├── session_data_www_corrieredellosport_it_20251122_000300_296807.json        
+    │           │   ├── session_data_www_corrieredellosport_it_20251122_001756_239277.json        
+    │           │   └── session_data_www_corrieredellosport_it_20251122_002708_072452.json        
+    │           ├── www_espn_co_uk
+    │           │   ├── session_data_www_espn_co_uk_20251122_000300_296807.json
+    │           │   ├── session_data_www_espn_co_uk_20251122_001756_239277.json
+    │           │   └── session_data_www_espn_co_uk_20251122_002708_072452.json
+    │           ├── www_footmercato_net
+    │           │   ├── session_data_www_footmercato_net_20251122_000300_296807.json
+    │           │   ├── session_data_www_footmercato_net_20251122_001756_239277.json
+    │           │   └── session_data_www_footmercato_net_20251122_002708_072452.json
+    │           ├── www_francefootball_fr
+    │           │   ├── session_data_www_francefootball_fr_20251122_000300_296807.json
+    │           │   ├── session_data_www_francefootball_fr_20251122_001756_239277.json
+    │           │   └── session_data_www_francefootball_fr_20251122_002708_072452.json
+    │           ├── www_kicker_de
+    │           │   ├── session_data_www_kicker_de_20251122_000300_296807.json
+    │           │   ├── session_data_www_kicker_de_20251122_001756_239277.json
+    │           │   └── session_data_www_kicker_de_20251122_002708_072452.json
+    │           ├── www_leparisien_fr
+    │           │   ├── session_data_www_leparisien_fr_20251122_000300_296807.json
+    │           │   ├── session_data_www_leparisien_fr_20251122_001756_239277.json
+    │           │   └── session_data_www_leparisien_fr_20251122_002708_072452.json
+    │           ├── www_lequipe_fr
+    │           │   ├── session_data_www_lequipe_fr_20251122_000300_296807.json
+    │           │   ├── session_data_www_lequipe_fr_20251122_001756_239277.json
+    │           │   └── session_data_www_lequipe_fr_20251122_002708_072452.json
+    │           ├── www_skysports_com
+    │           │   ├── session_data_www_skysports_com_20251122_000300_296807.json
+    │           │   ├── session_data_www_skysports_com_20251122_001756_239277.json
+    │           │   └── session_data_www_skysports_com_20251122_002708_072452.json
+    │           ├── www_sport1_de
+    │           │   ├── session_data_www_sport1_de_20251122_000300_296807.json
+    │           │   ├── session_data_www_sport1_de_20251122_001756_239277.json
+    │           │   └── session_data_www_sport1_de_20251122_002708_072452.json
+    │           ├── www_sport_de
+    │           │   ├── session_data_www_sport_de_20251122_000300_296807.json
+    │           │   ├── session_data_www_sport_de_20251122_001756_239277.json
+    │           │   └── session_data_www_sport_de_20251122_002708_072452.json
+    │           ├── www_telegraph_co_uk
+    │           │   ├── session_data_www_telegraph_co_uk_20251122_000300_296807.json
+    │           │   ├── session_data_www_telegraph_co_uk_20251122_001756_239277.json
+    │           │   └── session_data_www_telegraph_co_uk_20251122_002708_072452.json
+    │           └── www_tuttosport_com
+    │               ├── session_data_www_tuttosport_com_20251122_000300_296807.json
+    │               ├── session_data_www_tuttosport_com_20251122_001756_239277.json
+    │               └── session_data_www_tuttosport_com_20251122_002708_072452.json
+    └── tr
+        └── 2025-11
+            ├── 2025-11-21
+            │   ├── www_fanatik_com_tr
+            │   │   └── session_data_www_fanatik_com_tr_20251121_233553_128332.json
+            │   ├── www_ntvspor_net
+            │   │   └── session_data_www_ntvspor_net_20251121_233553_128332.json
+            │   └── www_trtspor_com_tr
+            │       └── session_data_www_trtspor_com_tr_20251121_233553_128332.json
+            └── 2025-11-22
+                ├── www_fanatik_com_tr
+                │   ├── session_data_www_fanatik_com_tr_20251122_000232_800572.json
+                │   └── session_data_www_fanatik_com_tr_20251122_001727_763962.json
+                ├── www_ntvspor_net
+                │   ├── session_data_www_ntvspor_net_20251122_000232_800572.json
+                │   └── session_data_www_ntvspor_net_20251122_001727_763962.json
+                └── www_trtspor_com_tr
+                    ├── session_data_www_trtspor_com_tr_20251122_000232_800572.json
+                    └── session_data_www_trtspor_com_tr_20251122_001727_763962.json

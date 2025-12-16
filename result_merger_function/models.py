@@ -29,6 +29,7 @@ VERTEX_AI_RESPONSE_SCHEMA = {
             "items": {
                 "type": "object",
                 "properties": {
+                    "article_id": {"type": "string"},
                     "original_url": {"type": "string"},
                     "title": {"type": "string"},
                     "summary": {"type": "string"},
@@ -64,9 +65,12 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                         "enum": ["high", "medium", "low"]
                     },
                     "confidence": {"type": "number"},
-                    "language": {"type": "string"}
+                    "language": {"type": "string"},
+                    "summary_translation": {"type": "string"},
+                    "x_post": {"type": "string"}
                 },
                 "required": [
+                    "article_id",
                     "original_url",
                     "title",
                     "summary",
@@ -76,7 +80,8 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                     "key_entities",
                     "content_quality",
                     "confidence",
-                    "language"
+                    "language",
+                    "x_post"
                 ]
             }
         }

@@ -4,9 +4,10 @@ import base64
 import asyncio
 import logging
 import sys
+import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import List, Dict, Any
 
 from google.cloud import pubsub_v1, storage
 from google import genai
@@ -52,6 +53,8 @@ NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 BATCH_PROCESSING_FOLDER = os.getenv('BATCH_PROCESSING_FOLDER', 'batch_processing/')
 VERTEX_AI_LOCATION = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
 VERTEX_AI_MODEL = os.getenv('VERTEX_AI_MODEL', 'gemini-2.5-pro')
+TAXONOMY_BUCKET = os.getenv('TAXONOMY_BUCKET', 'aisports-scraping')
+TAXONOMY_PATH = os.getenv('TAXONOMY_PATH', 'taxonomy/tag_taxonomy.json')
 
 
 class BatchBuilder:
@@ -64,6 +67,7 @@ class BatchBuilder:
         """Initialize the batch builder with Vertex AI client."""
         self.genai_client = None
         self.storage_client = storage_client
+        self._taxonomy_cache = None
         
         if ENVIRONMENT != 'local':
             try:
@@ -85,14 +89,113 @@ class BatchBuilder:
                 logger.error(f"Failed to initialize Vertex AI client: {e}")
                 self.genai_client = None
 
+    def load_taxonomy_from_gcs(self) -> List[str]:
+        """
+        Load the tag taxonomy from GCS.
+        
+        Returns:
+            List of allowed tag strings
+        """
+        if self._taxonomy_cache is not None:
+            return self._taxonomy_cache
+            
+        try:
+            bucket = self.storage_client.bucket(TAXONOMY_BUCKET)
+            blob = bucket.blob(TAXONOMY_PATH)
+            content = blob.download_as_text()
+            taxonomy_data = json.loads(content)
+            
+            self._taxonomy_cache = taxonomy_data.get('tags', [])
+            logger.info(f"Loaded {len(self._taxonomy_cache)} tags from taxonomy: gs://{TAXONOMY_BUCKET}/{TAXONOMY_PATH}")
+            return self._taxonomy_cache
+            
+        except Exception as e:
+            logger.error(f"Error loading taxonomy from GCS: {e}")
+            # Return empty list if taxonomy unavailable - prompt will work without strict enforcement
+            return []
+
+    def extract_path_info_from_source_files(self, source_files: List[str]) -> tuple:
+        """
+        Extract collection_id, year-month, and date from source file paths.
+        
+        Args:
+            source_files: List of GCS file paths
+            
+        Returns:
+            Tuple of (collection_id, year_month, date)
+        """
+        default_collection = "default"
+        default_ym = datetime.now(timezone.utc).strftime("%Y-%m")
+        default_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        
+        if not source_files:
+            logger.warning("No source files provided, falling back to defaults")
+            return default_collection, default_ym, default_date
+        
+        try:
+            # Extract info from first source file path
+            # Expected pattern: .../sources/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/...
+            first_file = source_files[0]
+            
+            # Use regex to extract the components
+            # Supports both batch_processing and sources paths
+            # Pattern matches: .../sources/tr/2025-11/2025-11-21/...
+            pattern = r'(?:batch_processing|sources)/([^/]+)/(\d{4}-\d{2})/(\d{4}-\d{2}-\d{2})/'
+            match = re.search(pattern, first_file)
+            
+            if match:
+                collection_id = match.group(1)
+                year_month = match.group(2)
+                date = match.group(3)
+                logger.info(f"Extracted path info: collection={collection_id}, date={year_month}/{date}")
+                return collection_id, year_month, date
+            else:
+                # Try old pattern without collection_id
+                old_pattern = r'(?:batch_processing|sources)/(\d{4}-\d{2})/(\d{4}-\d{2}-\d{2})/'
+                old_match = re.search(old_pattern, first_file)
+                if old_match:
+                    logger.info(f"Matched old path pattern (no collection_id)")
+                    return default_collection, old_match.group(1), old_match.group(2)
+                    
+                logger.warning(f"Could not extract path info from: {first_file}")
+                return default_collection, default_ym, default_date
+                
+        except Exception as e:
+            logger.error(f"Error extracting path info: {e}")
+            return default_collection, default_ym, default_date
+
     def load_prompt_template(self) -> str:
         """
         Load the PROMPT.md template for processing session data.
+        Injects the current tag taxonomy from GCS.
         
         Returns:
-            str: The prompt template content
+            str: The prompt template content with taxonomy injected
         """
         try:
+            # Load taxonomy from GCS
+            allowed_tags = self.load_taxonomy_from_gcs()
+            
+            # Format tags for prompt injection
+            if allowed_tags:
+                tags_list = "\n".join([f"- `{tag}`" for tag in allowed_tags])
+                taxonomy_section = f"""## ALLOWED TAGS (STRICT)
+
+You MUST select tags from this list. For non-football sports (basketball, volleyball, etc.), use ONLY the sport name tag.
+
+**Available Tags:**
+{tags_list}
+
+**IMPORTANT:** 
+- Select from the above list whenever possible
+- If NO existing tag adequately describes the article, you may propose a NEW tag
+- New tags must follow the hyphenated format (e.g., `new-category-name`)
+- Use `suggested_new_tags` field to propose new tags with justification
+"""
+            else:
+                taxonomy_section = ""
+                logger.warning("No taxonomy loaded - prompt will use unrestricted tagging")
+            
             # Look for PROMPT.md in the legacy directory first, then in current directory
             prompt_paths = [
                 Path(__file__).parent.parent / "legacy_monolithic_code" / "PROMPT.md",
@@ -104,8 +207,10 @@ class BatchBuilder:
                     with open(prompt_path, 'r', encoding='utf-8') as f:
                         prompt_content = f.read()
                     
-                    # Construct the complete prompt
+                    # Construct the complete prompt with taxonomy injected
                     combined_prompt = f"""{prompt_content}
+
+{taxonomy_section}
 
 ## SESSION DATA TO PROCESS
 
@@ -122,6 +227,47 @@ The data contains sports news articles that need to be processed according to th
             logger.error(f"Error loading prompt template: {e}")
             raise
     
+    def _has_articles(self, gcs_uri: str) -> bool:
+        """
+        Check if the GCS file contains any articles.
+        
+        Args:
+            gcs_uri: GCS URI of the file to check
+            
+        Returns:
+            bool: True if file has articles, False otherwise
+        """
+        try:
+            # Parse GCS URI
+            if gcs_uri.startswith("gs://"):
+                path_parts = gcs_uri.replace("gs://", "").split("/", 1)
+                bucket_name = path_parts[0]
+                blob_name = path_parts[1]
+            else:
+                logger.warning(f"Invalid GCS URI format: {gcs_uri}")
+                return True # Assume true to be safe
+            
+            bucket = self.storage_client.bucket(bucket_name)
+            blob = bucket.blob(blob_name)
+            
+            # Download content
+            content = blob.download_as_text()
+            data = json.loads(content)
+            
+            # Check for articles
+            articles = data.get("articles", [])
+            
+            if not articles:
+                logger.info(f"File {gcs_uri} has 0 articles. Skipping.")
+                return False
+                
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Error checking articles in {gcs_uri}: {e}")
+            # If we can't read it, assume it has content to be safe
+            return True
+
     def create_batch_request_jsonl(self, gcs_files: List[str], prompt_template: str) -> str:
         """
         Create a JSONL file with batch requests for each GCS file.
@@ -144,6 +290,10 @@ The data contains sports news articles that need to be processed according to th
               # Create batch requests
             batch_requests = []
             for i, gcs_uri in enumerate(gcs_files):
+                # Check if file has articles before processing
+                if not self._has_articles(gcs_uri):
+                    continue
+
                 # Extract source domain for logging
                 filename = Path(gcs_uri).stem
                 source_domain = filename.replace('session_data_', '').replace('_', '.')
@@ -183,6 +333,10 @@ The data contains sports news articles that need to be processed according to th
                 batch_requests.append(request)
                 logger.info(f"Created batch request {i+1}/{len(gcs_files)} for {source_domain}")
             
+            if not batch_requests:
+                logger.warning("No valid batch requests created (all files were empty or skipped).")
+                return None
+
             # Write JSONL file
             with open(jsonl_path, 'w', encoding='utf-8') as f:
                 for request in batch_requests:
@@ -197,20 +351,25 @@ The data contains sports news articles that need to be processed according to th
             logger.error(f"Error creating batch request JSONL: {e}")
             return None
 
-    def upload_batch_request_to_gcs(self, local_jsonl_path: str, batch_id: str) -> str:
+    def upload_batch_request_to_gcs(self, local_jsonl_path: str, batch_id: str, run_id: str, source_files: List[str]) -> str:
         """
         Upload the batch request JSONL file to GCS.
         
         Args:
             local_jsonl_path: Local path to the JSONL file
             batch_id: Unique batch identifier
+            run_id: Pipeline run identifier
+            source_files: List of source GCS files (used to extract date)
             
         Returns:
             GCS URI of the uploaded file
         """
         try:
-            current_date_path = datetime.now(timezone.utc).strftime("%Y-%m")
-            gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{current_date_path}/batch_{batch_id}/request.jsonl"
+            # Extract date from source files to maintain consistency
+            collection_id, current_year_month, current_date = self.extract_path_info_from_source_files(source_files)
+            
+            # New path: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/requests/request.jsonl
+            gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{current_year_month}/{current_date}/{run_id}/stage1_extraction/requests/request.jsonl"
             
             bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
             blob = bucket.blob(gcs_blob_name)
@@ -230,27 +389,40 @@ The data contains sports news articles that need to be processed according to th
             logger.error(f"Error uploading batch request to GCS: {e}")
             return None
 
-    def submit_batch_job(self, batch_request_gcs_uri: str, batch_id: str) -> tuple:
+    def submit_batch_job(self, batch_request_gcs_uri: str, batch_id: str, run_id: str, source_files: List[str]) -> tuple:
         """
         Submit a batch job to Vertex AI.
         
         Args:
             batch_request_gcs_uri: GCS URI of the batch request file
             batch_id: Unique batch identifier
+            run_id: Pipeline run identifier
+            source_files: List of source GCS files (used to extract date)
             
         Returns:
             Tuple of (job_name, output_uri) if successful, (None, None) otherwise
         """
         try:
-            current_date_path = datetime.now(timezone.utc).strftime("%Y-%m")
-            output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{current_date_path}/batch_results_raw/{batch_id}/"
+            # Extract date from source files to maintain consistency
+            collection_id, current_year_month, current_date = self.extract_path_info_from_source_files(source_files)
             
-            # output_uri = f"gs://multi-modal-ai-bucket/batch_results_raw/{current_date_path}/{batch_id}/"
+            # New path: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/results/
+            output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{current_year_month}/{current_date}/{run_id}/stage1_extraction/results/"
             
-            # Create batch job configuration
-            batch_config = CreateBatchJobConfig(dest=output_uri)
+            # Create a meaningful display name for the batch job
+            # Format: aisports_{collection}_{stage}_{date}_{time}
+            # Example: aisports_eu_stage1_20251212_160833
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+            display_name = f"aisports_{collection_id}_stage1_{current_date.replace('-', '')}_{timestamp}"
+            
+            # Create batch job configuration with custom display name
+            batch_config = CreateBatchJobConfig(
+                dest=output_uri,
+                display_name=display_name
+            )
             
             logger.info(f"Submitting batch job...")
+            logger.info(f"  Display name: {display_name}")
             logger.info(f"  Model: {VERTEX_AI_MODEL}")
             logger.info(f"  Source: {batch_request_gcs_uri}")
             logger.info(f"  Output: {output_uri}")
@@ -273,65 +445,56 @@ The data contains sports news articles that need to be processed according to th
             logger.error(f"Error submitting batch job: {e}")
             return None, None
 
-    def save_batch_metadata(self, batch_id: str, job_name: str, output_uri: str, 
-                           source_files: List[str], batch_message: Dict[str, Any]) -> None:
+    def save_batch_metadata(self, batch_id: str, run_id: str, job_name: str, output_uri: str, source_files: List[str], triggered_by: str = "system") -> bool:
         """
-        Save batch job metadata to GCS.
+        Save metadata about the batch job to GCS.
         
         Args:
             batch_id: Unique batch identifier
+            run_id: Pipeline run identifier
             job_name: Vertex AI batch job name
-            output_uri: GCS output URI
+            output_uri: GCS URI where results will be stored
             source_files: List of source GCS files
-            batch_message: Original batch message from scraper
+            triggered_by: Email of user who triggered the scrape (default: "system")
+            
+        Returns:
+            True if successful, False otherwise
         """
         try:
-            current_date_path = datetime.now(timezone.utc).strftime("%Y-%m")
-            metadata_path = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{current_date_path}/batch_{batch_id}/job_metadata.json"
+            # Extract date from source files
+            collection_id, current_year_month, current_date = self.extract_path_info_from_source_files(source_files)
             
             metadata = {
                 "batch_id": batch_id,
+                "run_id": run_id,
                 "job_name": job_name,
                 "output_uri": output_uri,
-                "source_files": source_files,
                 "source_files_count": len(source_files),
-                "vertex_ai_model": VERTEX_AI_MODEL,
-                "vertex_ai_location": VERTEX_AI_LOCATION,
+                "collection_id": collection_id,
+                "triggered_by": triggered_by,
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                "status": "submitted",
-                "original_batch_message": batch_message
+                "model": VERTEX_AI_MODEL,
+                "location": VERTEX_AI_LOCATION
             }
             
-            # Also save source files manifest
-            manifest = {
-                "batch_id": batch_id,
-                "source_files": source_files,
-                "created_at": datetime.now(timezone.utc).isoformat()
-            }
+            # Path: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/metadata.json
+            gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{current_year_month}/{current_date}/{run_id}/metadata.json"
             
             bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
+            blob = bucket.blob(gcs_blob_name)
             
-            # Save job metadata
-            metadata_blob = bucket.blob(metadata_path)
-            metadata_blob.upload_from_string(
-                json.dumps(metadata, indent=2, ensure_ascii=False),
+            blob.upload_from_string(
+                json.dumps(metadata, indent=2),
                 content_type='application/json'
             )
             
-            # Save source files manifest
-            manifest_path = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{current_date_path}/batch_{batch_id}/source_files_manifest.json"
-            manifest_blob = bucket.blob(manifest_path)
-            manifest_blob.upload_from_string(
-                json.dumps(manifest, indent=2, ensure_ascii=False),
-                content_type='application/json'
-            )
-            
-            logger.info(f"Batch metadata saved to GCS: {metadata_path}")
-            logger.info(f"Source files manifest saved to GCS: {manifest_path}")
+            logger.info(f"Batch metadata saved to gs://{GCS_BUCKET_NAME}/{gcs_blob_name}")
+            return True
             
         except Exception as e:
             logger.error(f"Error saving batch metadata: {e}")
-
+            return False
+    
 
 async def _process_batch_request(message_data: dict):
     """
@@ -365,6 +528,25 @@ async def _process_batch_request(message_data: dict):
     if not gcs_files:
         logger.error("No valid GCS files found in success messages")
         return
+    
+    # Extract run_id from message or generate one
+    run_id = message_data.get("run_id")
+    if not run_id:
+        # Try to get it from the first success message
+        if success_messages and isinstance(success_messages[0], dict):
+            run_id = success_messages[0].get("run_id")
+            
+    if not run_id:
+        run_id = f"run_{datetime.now(timezone.utc).strftime('%H-%M-%S')}"
+        logger.warning(f"No run_id found in message, generated new: {run_id}")
+        
+    logger.info(f"Using Run ID: {run_id}")
+    
+    # Extract triggered_by from success messages (all should have the same value)
+    triggered_by = "system"  # Default value for historical/automated runs
+    if success_messages and isinstance(success_messages[0], dict):
+        triggered_by = success_messages[0].get("triggered_by", "system")
+    logger.info(f"Triggered by: {triggered_by}")
     
     logger.info(f"Total GCS files extracted from success messages: {len(gcs_files)}")
     
@@ -434,31 +616,33 @@ async def _process_batch_request(message_data: dict):
         
         # Step 3: Upload to GCS
         logger.info("Step 3: Uploading batch request to GCS...")
-        batch_request_gcs_uri = batch_builder.upload_batch_request_to_gcs(local_jsonl_path, batch_id)
+        batch_request_gcs_uri = batch_builder.upload_batch_request_to_gcs(local_jsonl_path, batch_id, run_id, gcs_files)
         if not batch_request_gcs_uri:
             logger.error("Failed to upload batch request to GCS")
             return
         
         # Step 4: Submit batch job
         logger.info("Step 4: Submitting batch job to Vertex AI...")
-        job_name, output_uri = batch_builder.submit_batch_job(batch_request_gcs_uri, batch_id)
+        job_name, output_uri = batch_builder.submit_batch_job(batch_request_gcs_uri, batch_id, run_id, gcs_files)
         if not job_name:
             logger.error("Failed to submit batch job")
             return
         
         # Step 5: Save batch metadata
         logger.info("Step 5: Saving batch metadata...")
-        batch_builder.save_batch_metadata(batch_id, job_name, output_uri, gcs_files, message_data)
+        batch_builder.save_batch_metadata(batch_id, run_id, job_name, output_uri, gcs_files, triggered_by)
         
         # Step 6: Publish batch job created message
         logger.info("Step 6: Publishing batch job created message...")
         batch_job_message = {
             "status": "batch_job_created",
+            "run_id": run_id,
             "batch_id": batch_id,
             "job_name": job_name,
             "output_uri": output_uri,
             "source_files": gcs_files,
             "source_files_count": len(gcs_files),
+            "triggered_by": triggered_by,
             "vertex_ai_model": VERTEX_AI_MODEL,
             "vertex_ai_location": VERTEX_AI_LOCATION,
             "created_at": datetime.now(timezone.utc).isoformat(),

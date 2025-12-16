@@ -22,7 +22,7 @@ def get_test_message_payload():
     This can be imported by other modules for local testing.
     """
     return {
-        "keywords": ["fenerbahce", "mourinho", "galatasaray"],
+        "keywords": ["fenerbahce", "galatasaray", "tedesco"],
         "urls": [
             "https://www.lequipe.fr/Football/",
             "https://www.francefootball.fr/",
@@ -44,7 +44,8 @@ def get_test_message_payload():
         ],
         "scrape_depth": 1,
         "persist": False,
-        "log_level": "INFO"  # Test the new journalist 0.4.0 log_level parameter
+        "log_level": "INFO",  # Test the new journalist 0.4.0 log_level parameter
+        "collection_id": "eu"
     }
 
 def trigger_scraper_function():
