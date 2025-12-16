@@ -56,12 +56,12 @@ def access_secret(secret_id: str, version_id: str = "latest") -> str:
     """Access a secret from Google Cloud Secret Manager."""
     if ENVIRONMENT == 'local':
         # In local environment, use environment variables
-        return os.getenv(secret_id, '')
-    
+        return os.getenv(secret_id, '').strip()
+
     try:
         name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/{version_id}"
         response = secret_client.access_secret_version(request={"name": name})
-        return response.payload.data.decode("UTF-8")
+        return response.payload.data.decode("UTF-8").strip()
     except Exception as e:
         logger.error(f"Error accessing secret: {e}")
         return ''
