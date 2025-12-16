@@ -49,7 +49,7 @@ class NewsAggregator:
         self.keywords: List[str] = []
         self.languages = ["tr", "en"]
         self.domains: List[str] = []
-        self.max_results = 50
+        self.max_results = 100
         self.time_range = TimeRangeEnum.LAST_24_HOURS
         self.custom_start_date: Optional[str] = None
         self.custom_end_date: Optional[str] = None
