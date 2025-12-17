@@ -23,12 +23,156 @@ You will receive a JSON file containing scraped European sports news articles wi
 - The `language` field in the output should indicate the detected language (e.g., "turkish", "spanish", "english").
 
 ### 2. DEDUPLICATION
-- Remove duplicate articles based on:
-  - Identical or very similar titles (≥90% similarity)
-  - Same URL or same content body
-  - Same core story but from different URLs
-- Keep the most complete version (with most content) when duplicates are found
-- Log how many duplicates were removed
+
+Remove duplicate articles using a **two-tier approach**: string matching OR entity matching.
+
+#### Tier 1: String-Based Duplicates (High Confidence)
+
+Two articles are duplicates if they meet ANY of these criteria:
+
+1. **Exact URL match** (same `url` field)
+2. **Title string similarity ≥90%**
+   - Use character-level similarity (Levenshtein/SequenceMatcher)
+   - Example: "Liverpool wins 3-1" vs "Liverpool win 3-1" = 95% → DUPLICATE
+3. **Near-identical body content** (≥95% text overlap after normalization)
+
+**Action:** Remove one, keep the version with most complete content (longest body).
+
+#### Tier 2: Entity-Based Duplicates (Semantic Matching)
+
+Two articles about the **same event** are duplicates if they meet ALL of these:
+
+**For Match Reports:**
+- Same teams (both teams mentioned in title)
+- Same score/result (if mentioned)
+- Same key player(s) (main subject of the article)
+- Same date (within 24 hours)
+- Both are match reports (not analysis/reaction/follow-up)
+
+**Example - These ARE duplicates (MERGE):**
+```
+"Osimhen scores twice as Galatasaray beats Fenerbahce 3-1"
+"Galatasaray wins against Fenerbahce as Osimhen shines with 2 goals: 3-1"
+
+Match: Same teams, same score (3-1), same key player (Osimhen), same goals (2)
+→ MERGE into one article
+```
+
+**For Award/Announcement Articles:**
+- Same award/announcement (e.g., "CAF Player of the Year")
+- Same nominees/winners mentioned (all key names present)
+- Same date
+- Both are announcements (not analysis/reaction)
+
+**For Transfer Articles:**
+- Same player
+- Same club(s) involved
+- Same transfer stage (rumor/negotiation/confirmed)
+- Within 48 hours
+
+#### What is NOT a Duplicate (Keep Both)
+
+Even if about the same event, these are **different stories**:
+
+❌ **Different article types:**
+- Match report ≠ Pre-match preview
+- Match report ≠ Post-match reaction/interview
+- Match report ≠ Tactical analysis
+- Match report ≠ Injury update
+- Announcement ≠ Follow-up analysis
+- Announcement ≠ Individual player feature
+
+❌ **Different focus:**
+- General announcement ≠ Player-specific news
+- Match result ≠ Financial impact analysis
+- Match result ≠ Fan reactions
+- Team news ≠ Individual player news
+
+**Examples - Keep both:**
+```
+"Galatasaray beats Fenerbahce 3-1" (match report)
+"Osimhen injury concern after scoring twice" (injury news)
+→ Different story types → Keep both
+
+"CAF Awards: Complete nominee list" (general announcement)
+"Osimhen's journey to CAF POTY nomination" (player feature)
+→ Different focus → Keep both
+
+"Nigeria loses to DR Congo 4-3" (match result)
+"Why Osimhen was substituted during Nigeria match" (tactical analysis)
+→ Different story types → Keep both
+```
+
+#### Merging Strategy for Entity-Based Duplicates
+
+When you identify entity-based duplicates (Tier 2), **MERGE them** to preserve all unique information:
+
+**Merge Process:**
+1. Use the **longest/most descriptive title**
+2. **Combine summaries** without repetition (include unique facts from both)
+3. **Merge entities**: Union of all teams, players, amounts, dates
+4. **Merge categories**: Union of all category tags
+5. Keep the **earliest published date**
+6. Keep the **highest content quality**
+7. Use article_id from the highest quality version
+
+**Example Merge:**
+```
+Article A: "Osimhen scores twice as Galatasaray beats Fenerbahce 3-1"
+  Summary: "Osimhen scored two goals as Galatasaray won 3-1."
+  Entities: {teams: [Galatasaray, Fenerbahce], players: [Osimhen]}
+
+Article B: "Galatasaray wins as Osimhen shines with 2 goals: 3-1"
+  Summary: "Galatasaray defeated Fenerbahce 3-1. Osimhen's brace. Icardi also scored."
+  Entities: {teams: [Galatasaray, Fenerbahce], players: [Osimhen, Icardi]}
+
+MERGED OUTPUT:
+  Title: "Galatasaray wins against Fenerbahce as Osimhen shines with 2 goals: 3-1"
+  Summary: "Galatasaray defeated Fenerbahce 3-1 in the derby. Osimhen scored a brace (two goals) and Icardi also found the net."
+  Entities: {teams: [Galatasaray, Fenerbahce], players: [Osimhen, Icardi]}
+```
+
+#### Processing Instructions
+
+**Step 1: Extract entities**
+For each article, identify:
+- Teams mentioned (especially in title)
+- Players mentioned (especially in title)
+- Scores/results
+- Award names
+- Transfer details
+
+**Step 2: Check Tier 1 (String-based)**
+- Calculate title similarity for all pairs
+- If ≥90% similarity OR same URL → Mark as duplicate, keep best version
+- Remove duplicates
+
+**Step 3: Check Tier 2 (Entity-based)**
+For remaining articles:
+- Group by event type (match, award, transfer)
+- Within each group, check entity overlap:
+  - Match reports: Same teams + same score + same key player → MERGE
+  - Award articles: Same award + same nominees → MERGE
+  - Transfer articles: Same player + same clubs → MERGE
+- If different article types → Keep both (not duplicates)
+
+**Step 4: Conservative approach**
+- If unsure whether two articles are duplicates → **KEEP BOTH**
+- Better to over-retain than over-remove
+- Focus on removing OBVIOUS duplicates only
+
+**Step 5: Log results**
+In processing_summary:
+```json
+{
+  "duplicates_removed": X,
+  "articles_merged": Y,
+  "merge_details": [
+    "Merged 2 match reports: Galatasaray vs Fenerbahce",
+    "Merged 3 CAF Award announcements"
+  ]
+}
+```
 
 ### 3. DATA CLEANING
 - Remove articles with missing or empty `title` and `body` fields
@@ -36,7 +180,7 @@ You will receive a JSON file containing scraped European sports news articles wi
 - Normalize special characters and encoding issues
 - Remove navigation elements, advertisements, and non-news content from body text
 
-### 4. SUMMARIZATION
+### 5. SUMMARIZATION
 - **LANGUAGE:** The summary MUST be written in the **SAME LANGUAGE** as the original article. Do NOT translate.
 - Create a comprehensive summary that preserves all important information (no strict sentence limit)
 - Include ALL key details: player names, team names, transfer amounts, dates, sources, quotes
@@ -45,7 +189,7 @@ You will receive a JSON file containing scraped European sports news articles wi
 - Maintain factual accuracy while condensing repetitive or redundant content
 - Ensure no critical information is lost during the summarization process
 
-### 5. PRECISE CLASSIFICATION
+### 6. PRECISE CLASSIFICATION
 Classify each article using tags from the **ALLOWED TAGS** list provided at the end of this prompt. 
 
 **CRITICAL RULES:**
@@ -59,7 +203,7 @@ Classify each article using tags from the **ALLOWED TAGS** list provided at the 
 - New tags must use hyphenated format: `new-category-name`
 - Provide justification for why no existing tag fits
 
-### 6. CONFIDENCE SCORING
+### 7. CONFIDENCE SCORING
 For each category assignment, provide a confidence score (0.0-1.0):
 - 1.0: Explicitly stated facts with evidence
 - 0.8: Strong indications with supporting details
@@ -67,7 +211,7 @@ For each category assignment, provide a confidence score (0.0-1.0):
 - 0.4: Weak indications, mostly speculation
 - 0.2: Minimal indication, mostly assumed
 
-### 7. TRANSLATION & SOCIAL MEDIA
+### 8. TRANSLATION & SOCIAL MEDIA
 - **Summary Translation**:
   - If the article is NOT in Turkish, provide a Turkish translation of the summary in `summary_translation`.
   - If the article IS in Turkish, leave `summary_translation` as null or empty string.
@@ -86,8 +230,12 @@ Return a JSON object with this exact structure:
     "articles_after_deduplication": 0,
     "articles_after_cleaning": 0,
     "duplicates_removed": 0,
+    "articles_merged": 0,
     "empty_articles_removed": 0,
     "processing_date": "2025-06-21T00:00:00Z",
+    "merge_details": [
+      "Description of merges performed, e.g., 'Merged 2 match reports: Galatasaray vs Fenerbahce'"
+    ],
     "suggested_new_tags": [
       {
         "tag": "new-tag-name",
