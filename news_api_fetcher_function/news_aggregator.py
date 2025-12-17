@@ -49,10 +49,11 @@ class NewsAggregator:
         self.keywords: List[str] = []
         self.languages = ["tr", "en"]
         self.domains: List[str] = []
-        self.max_results = 50
+        self.max_results = 100
         self.time_range = TimeRangeEnum.LAST_24_HOURS
         self.custom_start_date: Optional[str] = None
         self.custom_end_date: Optional[str] = None
+        self.raw_responses: Dict[str, Dict] = {}  # Store raw API responses
     
     def _extract_domain(self, url: str) -> str:
         """Extract domain name from URL for source attribution."""
@@ -180,7 +181,10 @@ class NewsAggregator:
                         return []
                     response.raise_for_status()
                     data = await response.json()
-            
+
+            # Store raw API response
+            self.raw_responses['newsapi'] = data
+
             articles = [{
                 "title": article.get("title") or "Untitled",
                 "url": article.get("url"),
@@ -252,7 +256,10 @@ class NewsAggregator:
                         return []
                     response.raise_for_status()
                     data = await response.json()
-            
+
+            # Store raw API response
+            self.raw_responses['worldnewsapi'] = data
+
             articles = [{
                 "title": article.get("title") or "Untitled",
                 "url": article.get("url"),
@@ -322,7 +329,10 @@ class NewsAggregator:
                         return []
                     response.raise_for_status()
                     data = await response.json()
-            
+
+            # Store raw API response
+            self.raw_responses['gnews'] = data
+
             articles = [{
                 "title": article.get("title") or "Untitled",
                 "url": article.get("url"),
@@ -357,16 +367,20 @@ class NewsAggregator:
     def get_available_sources(self) -> List[str]:
         """Get list of available news sources based on configured API keys."""
         sources = []
-        
+
         if self.newsapi_key:
             sources.append('newsapi')
         if self.worldnewsapi_key:
             sources.append('worldnewsapi')
         if self.gnews_api_key:
             sources.append('gnews')
-            
+
         return sources
-        
+
+    def get_raw_responses(self) -> Dict[str, Dict]:
+        """Get the raw API responses from all sources."""
+        return self.raw_responses
+
     async def get_news(self, keywords: Optional[List[str]] = None) -> List[Dict]:
         """Fetch news from all configured sources concurrently."""
         if keywords:

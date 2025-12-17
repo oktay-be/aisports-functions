@@ -113,7 +113,7 @@ async def fetch_and_store_news(message_data: dict) -> dict:
     keywords = message_data.get('keywords', DEFAULT_KEYWORDS)
     triggered_by = message_data.get('triggered_by', 'scheduler')
     time_range = message_data.get('time_range', 'last_24_hours')
-    max_results = message_data.get('max_results', 50)
+    max_results = message_data.get('max_results', 100)
     
     logger.info(f"Starting news API fetch - Keywords: {keywords}, Triggered by: {triggered_by}")
     
@@ -168,18 +168,18 @@ async def fetch_and_store_news(message_data: dict) -> dict:
     date_str = now.strftime('%Y-%m-%d')
     year_month = now.strftime('%Y-%m')
     run_id = now.strftime('%H-%M-%S')
-    
+
     # Path: news_data/api/{YYYY-MM}/{YYYY-MM-DD}/run_{HH-MM-SS}/
     base_path = f"{NEWS_DATA_ROOT_PREFIX}api/{year_month}/{date_str}/run_{run_id}"
-    
-    # Add source_type to each article
+
+    # Add source_type and dates to each article
     processed_articles = []
     for article in articles:
         article['source_type'] = 'api'
-        article['fetched_at'] = now.isoformat()
+        article['fetched_at'] = date_str  # YYYY-MM-DD format for easy filtering
         article['keywords_matched'] = keywords
         processed_articles.append(article)
-    
+
     # Upload articles
     articles_path = f"{base_path}/articles.json"
     upload_to_gcs(GCS_BUCKET_NAME, articles_path, {
@@ -187,7 +187,7 @@ async def fetch_and_store_news(message_data: dict) -> dict:
         'count': len(processed_articles),
         'fetched_at': now.isoformat()
     })
-    
+
     # Upload metadata
     metadata = {
         'triggered_by': triggered_by,
@@ -201,7 +201,15 @@ async def fetch_and_store_news(message_data: dict) -> dict:
     }
     metadata_path = f"{base_path}/metadata.json"
     upload_to_gcs(GCS_BUCKET_NAME, metadata_path, metadata)
-    
+
+    # Upload raw API responses
+    raw_responses = aggregator.get_raw_responses()
+    if raw_responses:
+        for api_name, response_data in raw_responses.items():
+            response_path = f"{base_path}/responses/{api_name}.json"
+            upload_to_gcs(GCS_BUCKET_NAME, response_path, response_data)
+            logger.info(f"Uploaded raw {api_name} response to {response_path}")
+
     logger.info(f"Successfully stored {len(processed_articles)} articles to {base_path}")
     
     return {
