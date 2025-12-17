@@ -76,13 +76,19 @@ class ResultMerger:
         if ENVIRONMENT != 'local':
             try:
                 # Initialize Vertex AI client
-                regional_endpoint = f"https://{VERTEX_AI_LOCATION}-aiplatform.googleapis.com/"
-                
+                # Gemini 3 models are only available on global endpoints
+                if "gemini-3" in VERTEX_AI_MODEL.lower():
+                    endpoint = "https://aiplatform.googleapis.com/"
+                    logger.info(f"Using global endpoint for Gemini 3 model: {VERTEX_AI_MODEL}")
+                else:
+                    endpoint = f"https://{VERTEX_AI_LOCATION}-aiplatform.googleapis.com/"
+                    logger.info(f"Using regional endpoint for model: {VERTEX_AI_MODEL}")
+
                 http_options = HttpOptions(
                     api_version="v1",
-                    base_url=regional_endpoint
+                    base_url=endpoint
                 )
-                
+
                 self.genai_client = genai.Client(
                     vertexai=True,
                     project=PROJECT_ID,
