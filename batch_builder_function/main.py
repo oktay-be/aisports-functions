@@ -73,26 +73,23 @@ class BatchBuilder:
         if ENVIRONMENT != 'local':
             try:
                 # Initialize Vertex AI client for batch processing
-                # Gemini 3 models are only available on global endpoints
+                # Gemini 3 models require location="global" (per Google's official examples)
                 if "gemini-3" in VERTEX_AI_MODEL.lower():
-                    endpoint = "https://aiplatform.googleapis.com/"
-                    logger.info(f"Using global endpoint for Gemini 3 model: {VERTEX_AI_MODEL}")
+                    location = "global"
+                    logger.info(f"Using global location for Gemini 3 model: {VERTEX_AI_MODEL}")
                 else:
-                    endpoint = f"https://{VERTEX_AI_LOCATION}-aiplatform.googleapis.com/"
-                    logger.info(f"Using regional endpoint for model: {VERTEX_AI_MODEL}")
+                    location = VERTEX_AI_LOCATION
+                    logger.info(f"Using regional location for model: {VERTEX_AI_MODEL}")
 
-                http_options = HttpOptions(
-                    api_version="v1",
-                    base_url=endpoint
-                )
+                http_options = HttpOptions(api_version="v1")
 
                 self.genai_client = genai.Client(
                     vertexai=True,
                     project=PROJECT_ID,
-                    location=VERTEX_AI_LOCATION,
+                    location=location,
                     http_options=http_options
                 )
-                logger.info(f"Vertex AI client initialized: project={PROJECT_ID}, location={VERTEX_AI_LOCATION}")
+                logger.info(f"Vertex AI client initialized: project={PROJECT_ID}, location={location}")
             except Exception as e:
                 logger.error(f"Failed to initialize Vertex AI client: {e}")
                 self.genai_client = None
