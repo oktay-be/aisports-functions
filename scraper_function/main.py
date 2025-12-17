@@ -273,9 +273,9 @@ async def _process_scraping_request(message_data: dict):
             logger.info(f"source_sessions[{i}][\"source_domain\"] = {source_domain}")
         logger.info("=== END SOURCE DOMAINS ===")
 
-        # API Integration mode: Save to custom path and skip batch processing
+        # API Integration mode: Save to scrape_results/ and publish batch message
         if api_run_path:
-            logger.info(f"API integration mode detected: saving to {api_run_path}/{output_filename}")
+            logger.info(f"API integration mode detected: saving to {api_run_path}/scrape_results/articles_scraped.json")
 
             # Merge all sessions into single list of articles
             all_articles = []
@@ -290,13 +290,13 @@ async def _process_scraping_request(message_data: dict):
 
             # Prepare upload data in session schema format
             upload_data = {
-                'source_domain': f"scraped_{collection_id}_combined",
-                'source_url': f"https://scraped-{collection_id}",
+                'source_domain': 'api_combined',
+                'source_url': 'https://api-news-aggregator',
                 'articles': all_articles,
                 'session_metadata': {
-                    'session_id': f"scraped_{collection_id}_{run_id}",
+                    'session_id': f"api_scraper_{run_id}",
                     'scraped_at': datetime.now(timezone.utc).isoformat(),
-                    'collection_id': collection_id,
+                    'collection_id': 'mixed',
                     'source_domains': source_domains,
                     'source_count': len(source_domains),
                     'extraction_method': 'journalist',
@@ -307,24 +307,74 @@ async def _process_scraping_request(message_data: dict):
 
             logger.info(f"Merged {len(all_articles)} articles from {len(source_sessions)} sessions ({len(source_domains)} sources)")
 
-            # Upload to GCS (API run folder)
+            # Upload to GCS (scrape_results folder)
+            scraped_file_path = f"{api_run_path}/scrape_results/articles_scraped.json"
+
             if ENVIRONMENT != 'local':
                 try:
-                    gcs_object_path = f"{api_run_path}/{output_filename}"
                     bucket = storage_client.bucket(GCS_BUCKET_NAME)
-                    blob = bucket.blob(gcs_object_path)
+                    blob = bucket.blob(scraped_file_path)
                     blob.upload_from_string(
                         json.dumps(upload_data, indent=2, ensure_ascii=False),
                         content_type='application/json'
                     )
-                    logger.info(f"✓ Saved scraped articles to gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
+                    logger.info(f"✓ Saved scraped articles to gs://{GCS_BUCKET_NAME}/{scraped_file_path}")
                 except Exception as e:
                     logger.error(f"Error uploading to GCS: {e}", exc_info=True)
+                    return
             else:
-                logger.info(f"Local mode: Would upload to {api_run_path}/{output_filename}")
+                logger.info(f"Local mode: Would upload to {scraped_file_path}")
 
-            # Skip normal batch processing (no session-data-created publish)
-            logger.info("API integration mode: Skipping normal batch processing")
+            # Extract run_id from api_run_path (e.g., "news_data/api/2025-12/2025-12-17/run_10-59-06" -> "run_10-59-06")
+            api_run_id = api_run_path.split('/')[-1] if '/' in api_run_path else run_id
+
+            # Publish to SESSION_DATA_CREATED_TOPIC with both scraped and complete articles
+            complete_file_path = f"{api_run_path}/complete_articles.json"
+
+            batch_message = {
+                'status': 'batch_success',
+                'run_id': api_run_id,
+                'batch_size': 2,
+                'success_messages': [
+                    {
+                        'status': 'success',
+                        'gcs_path': f"gs://{GCS_BUCKET_NAME}/{scraped_file_path}",
+                        'source_domain': 'api_scraped',
+                        'articles_count': len(all_articles),
+                        'triggered_by': triggered_by,
+                        'processed_at': datetime.now(timezone.utc).isoformat()
+                    },
+                    {
+                        'status': 'success',
+                        'gcs_path': f"gs://{GCS_BUCKET_NAME}/{complete_file_path}",
+                        'source_domain': 'api_complete',
+                        'triggered_by': triggered_by,
+                        'processed_at': datetime.now(timezone.utc).isoformat()
+                    }
+                ],
+                'batch_processed_at': datetime.now(timezone.utc).isoformat(),
+                'total_articles': len(all_articles)
+            }
+
+            if ENVIRONMENT != 'local':
+                try:
+                    logger.info(f"Publishing batch message to SESSION_DATA_CREATED_TOPIC with 2 files:")
+                    logger.info(f"  1. {scraped_file_path} ({len(all_articles)} articles)")
+                    logger.info(f"  2. {complete_file_path}")
+
+                    topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
+                    future = publisher.publish(topic_path, json.dumps(batch_message).encode("utf-8"))
+                    future.result()  # Wait for publish to complete
+
+                    logger.info("✓ Successfully published batch message to SESSION_DATA_CREATED_TOPIC")
+                except Exception as pub_error:
+                    logger.error(f"Failed to publish batch message: {pub_error}", exc_info=True)
+                    return
+            else:
+                logger.info(f"Local mode: Would publish batch message to SESSION_DATA_CREATED_TOPIC")
+                logger.info(f"Message: {json.dumps(batch_message, indent=2)}")
+
+            logger.info("API integration mode: Batch processing triggered. Exiting.")
             return
 
         # Initialize list to accumulate success messages for batch publishing

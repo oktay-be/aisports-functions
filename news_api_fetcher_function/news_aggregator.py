@@ -51,32 +51,6 @@ def is_content_complete(content: str) -> bool:
     return True
 
 
-def classify_region(article: dict, api_source: str) -> str:
-    """
-    Determine collection_id (tr/eu) based on language.
-
-    Args:
-        article: Article dict with language info
-        api_source: 'newsapi', 'worldnewsapi', or 'gnews'
-
-    Returns:
-        'tr' for Turkish articles, 'eu' for everything else
-    """
-    # Different APIs use different field names for language
-    if api_source == 'worldnewsapi':
-        lang = article.get('language', '').lower()
-    elif api_source == 'gnews':
-        lang = article.get('lang', '').lower()
-    else:  # newsapi or unknown
-        lang = article.get('language', 'en').lower()
-
-    # Turkish articles go to 'tr' collection, everything else to 'eu'
-    region = 'tr' if lang == 'tr' else 'eu'
-
-    logger.debug(f"Classified article as region '{region}' (language: {lang}, source: {api_source})")
-    return region
-
-
 class TimeRangeEnum(str, Enum):
     """Time range options for news queries"""
     LAST_HOUR = "last_hour"

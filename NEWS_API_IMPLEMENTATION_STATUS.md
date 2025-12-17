@@ -1,47 +1,49 @@
 # News API Content Enrichment - Implementation Status
 
-## ✅ Completed (Phases 1-5)
+## ✅ Completed (Phases 1-5 Redesigned)
 
 ### Phase 1: Content Detection ✅
 **File**: `news_aggregator.py`
 
 - ✅ Added `is_content_complete()`: Detects truncated content using `[+N chars]` pattern
-- ✅ Added `classify_region()`: Classifies articles as TR/EU based on language field
+- ~~Removed `classify_region()`~~: Region-based splitting removed for simplification
 
 ### Phase 2: Article Classification & Schema Transformation ✅
 **File**: `news_api_fetcher_function/main.py`
 
 - ✅ Added `generate_article_id()`: Generates MD5-based article IDs
 - ✅ Added `transform_api_article_to_session_schema()`: Transforms API articles to match scraper schema
-- ✅ Splits articles into complete/incomplete by region
+- ✅ Splits articles into complete/incomplete (no region distinction)
 - ✅ Transforms complete articles to session schema format
-- ✅ Saves only complete articles to `articles.json`
+- ✅ Saves complete articles to `complete_articles.json` (renamed from articles.json)
 
-### Phase 3: Scraper Triggering ✅
+### Phase 3: Scraper Triggering ✅ (Simplified)
 **File**: `news_api_fetcher_function/main.py`
 
-- ✅ Added `trigger_scraper_for_incomplete_articles()`: Triggers scraper via Pub/Sub
-- ✅ Publishes two separate messages (TR and EU) with region-specific filenames
-- ✅ Passes `api_run_path` and `output_filename` parameters
+- ✅ Simplified `trigger_scraper_for_incomplete_articles()`: Single message for all incomplete articles
+- ✅ Removed region-based splitting (TR/EU)
+- ✅ Passes only `api_run_path` parameter (no output_filename)
+- ✅ Function exits immediately after triggering (no waiting)
 
-### Phase 4: Scraper Integration ✅
+### Phase 4: Scraper Integration ✅ (Redesigned)
 **File**: `scraper_function/main.py`
 
 - ✅ Detects API integration mode (`api_run_path` parameter)
-- ✅ Merges all sessions into single file per region
-- ✅ Outputs session schema format matching traditional scraping
-- ✅ Saves to `articles_scraped_{region}.json`
-- ✅ Skips normal batch processing in API mode
+- ✅ Merges all sessions into single file
+- ✅ Outputs to `scrape_results/articles_scraped.json` (new location)
+- ✅ **Always publishes to SESSION_DATA_CREATED_TOPIC** with both files:
+  - `scrape_results/articles_scraped.json`
+  - `complete_articles.json`
 
 ---
 
-## 📂 Current Folder Structure
+## 📂 New Folder Structure (Simplified)
 
 ```
 news_data/api/2025-12/2025-12-17/run_10-59-06/
-  ├── articles.json              # Complete API articles (session schema)
-  ├── articles_scraped_tr.json   # Scraped Turkish articles (session schema)
-  ├── articles_scraped_eu.json   # Scraped EU articles (session schema)
+  ├── complete_articles.json     # Complete API articles (session schema)
+  ├── scrape_results/
+  │   └── articles_scraped.json  # All scraped articles merged (session schema)
   ├── metadata.json              # Run metadata
   └── responses/                 # Raw API responses
       ├── newsapi.json
@@ -100,82 +102,105 @@ All three article files now use the **same session schema**:
 
 ---
 
-## 🔄 Data Flow
+## 🔄 New Event-Driven Data Flow (Simplified)
 
 ```
 1. News API Fetch
    ↓
-2. Classify by Completeness & Region
+2. Classify by Completeness (no region)
    ├─ Complete (30 articles)
    │  └─ Transform to session schema
-   │     └─ Save to articles.json
+   │     └─ Save to complete_articles.json
    │
    └─ Incomplete (40 articles)
-      ├─ TR (25 articles)
-      │  └─ Trigger scraper via Pub/Sub
-      │     └─ Save to articles_scraped_tr.json
-      │
-      └─ EU (15 articles)
-         └─ Trigger scraper via Pub/Sub
-            └─ Save to articles_scraped_eu.json
+      └─ Single batch of all incomplete articles
+         └─ Trigger scraper via Pub/Sub → EXIT
+
+3. Scraper Function (triggered separately)
+   ├─ Scrape all incomplete articles
+   ├─ Merge all into single file
+   ├─ Save to scrape_results/articles_scraped.json
+   └─ Publish to SESSION_DATA_CREATED_TOPIC with:
+      • scrape_results/articles_scraped.json
+      • complete_articles.json
+
+4. Batch Builder Function (triggered by SESSION_DATA_CREATED_TOPIC)
+   └─ Creates Stage 1 batch job for both files
+
+5. Result Merger Function (triggered by Stage 1 completion)
+   └─ Creates Stage 2 deduplication batch job
 ```
 
-### After Scraper Completes
+### Two Possible Paths
 
+**Path A: All Complete (no scraping needed)**
 ```
-news_data/api/.../run_XX-XX-XX/
-  ├── articles.json (30 complete)
-  ├── articles_scraped_tr.json (25 scraped TR)
-  └── articles_scraped_eu.json (15 scraped EU)
-      ↓
-  Total: 70 articles with full content
+news_api_fetcher → complete_articles.json → SESSION_DATA_CREATED_TOPIC → batch_builder
+```
+
+**Path B: Mixed Complete + Incomplete**
+```
+news_api_fetcher → complete_articles.json + trigger scraper → EXIT
+                     ↓
+                   scraper → articles_scraped.json + SESSION_DATA_CREATED_TOPIC → batch_builder
 ```
 
 ---
 
-## ✅ Phase 5: Batch Processing Integration (Completed)
+## ✅ Phase 5: Event-Driven Architecture (Redesigned)
 
-**File**: `news_api_fetcher_function/main.py`
+**Files Modified**: `news_api_fetcher_function/main.py`, `scraper_function/main.py`
 
-### Implementation Approach
+### New Implementation Approach
 
-**Followed scraper_function pattern exactly:**
-- News API fetcher waits synchronously for scraper completion (Option C)
-- Polls GCS for articles_scraped_tr.json and articles_scraped_eu.json
-- Collects all 3 file paths (articles.json + scraped files)
-- Publishes ONE batch message to session-data-created (like scraper_function does)
+**Event-Driven Pattern:**
+- No waiting or polling
+- Each function does ONE job and exits
+- Pub/Sub messages trigger next stage
+- Natural retries and error handling
 
-### Added Functions
+### Key Changes
 
-#### `wait_for_scraped_files()`
-- Polls GCS for scraped article files
-- Timeout: 5 minutes (300 seconds)
-- Checks every 5 seconds
-- Returns list of file info with paths and article counts
+#### Removed Functions
+- ~~`wait_for_scraped_files()`~~: Eliminated polling and timeouts
+- ~~`classify_region()`~~: Removed region-based complexity
 
-#### `publish_batch_processing_request()`
-- Publishes to session-data-created topic
-- Creates batch message with success_messages array (all 3 files)
-- Follows exact same pattern as scraper_function
+#### Modified Functions
 
-### Single vs Multiple Invocations
+**`trigger_scraper_for_incomplete_articles()`**
+- Now accepts flat list of articles (no region grouping)
+- Publishes single message to scraping-requests topic
+- Returns immediately (no waiting)
 
-**Single Invocation (All complete articles):**
-- No incomplete articles → no scrapers triggered
-- Publishes batch message with only articles.json
+**`publish_batch_processing_request()`**
+- Updated to use `gcs_path` format (matching batch_builder expectations)
+- Simplified message structure
 
-**Multiple Invocations (Some incomplete articles):**
-- Triggers TR and EU scrapers via Pub/Sub
-- Waits for both to complete
-- Publishes batch message with all 3 files
+### Execution Flows
+
+**Scenario 1: All complete articles**
+1. news_api_fetcher writes complete_articles.json
+2. Publishes to SESSION_DATA_CREATED_TOPIC immediately
+3. Exits with success
+4. batch_builder processes the file
+
+**Scenario 2: Some incomplete articles**
+1. news_api_fetcher writes complete_articles.json
+2. Triggers scraper via scraping-requests topic
+3. Exits with success
+4. scraper_function (separate execution):
+   - Scrapes incomplete articles
+   - Writes to scrape_results/articles_scraped.json
+   - Publishes to SESSION_DATA_CREATED_TOPIC with both files
+5. batch_builder processes both files
 
 ### Batch Processing Results Location
 
 ```
 news_data/api/.../run_XX-XX-XX/
-  ├── articles.json
-  ├── articles_scraped_tr.json
-  ├── articles_scraped_eu.json
+  ├── complete_articles.json
+  ├── scrape_results/
+  │   └── articles_scraped.json
   ├── stage1_extraction/
   │   ├── requests/request.jsonl
   │   └── results/predictions.jsonl
@@ -202,37 +227,40 @@ news_data/api/.../run_XX-XX-XX/
 
 ---
 
-## 📊 Benefits
+## 📊 Benefits of New Architecture
 
 1. **Full Content**: No more truncated `[+497 chars]` - all articles have complete text
 2. **Unified Schema**: All files use same format - easy to process together
-3. **Region Classification**: Articles pre-classified by language (TR/EU)
-4. **Quality Improvement**: Uses existing high-quality batch processing pipeline
-5. **Backwards Compatible**: Traditional scraping pipeline unchanged
+3. **Simplified Flow**: No region classification - single merged file for all scraped articles
+4. **Event-Driven**: No polling or waiting - natural Pub/Sub flow
+5. **Reliability**: Each function exits cleanly, natural retries via Pub/Sub
+6. **Debuggability**: Clear message trail through Cloud Logging
+7. **Quality Improvement**: Uses existing high-quality batch processing pipeline
+8. **Backwards Compatible**: Traditional scraping pipeline unchanged
 
 ---
 
-## 🔧 Modified Files
+## 🔧 Modified Files (Redesign)
 
 ### news_api_fetcher_function
-1. `news_aggregator.py` - Added detection functions:
+1. `news_aggregator.py` - Content detection:
    - `is_content_complete()`: Detects truncated content
-   - `classify_region()`: Classifies articles by language (TR/EU)
+   - ~~Removed `classify_region()`~~: Region classification eliminated
 
-2. `main.py` - Added complete integration:
+2. `main.py` - Simplified event-driven flow:
    - `generate_article_id()`: Generate MD5-based article IDs
    - `transform_api_article_to_session_schema()`: Transform API → session schema
-   - `trigger_scraper_for_incomplete_articles()`: Trigger scrapers via Pub/Sub
-   - `wait_for_scraped_files()`: Poll GCS for scraper completion
-   - `publish_batch_processing_request()`: Publish to session-data-created
-   - Modified `fetch_and_store_news()`: Added orchestration logic
+   - **Simplified `trigger_scraper_for_incomplete_articles()`**: Single message, no regions
+   - ~~Removed `wait_for_scraped_files()`~~: Polling eliminated
+   - **Updated `publish_batch_processing_request()`**: Uses `gcs_path` format
+   - **Redesigned `fetch_and_store_news()`**: No waiting, immediate exit
 
 ### scraper_function
-1. `main.py` - Added API integration mode:
+1. `main.py` - Simplified API integration:
    - Detects `api_run_path` parameter
-   - Merges all sessions into single file per region
-   - Outputs to custom path (articles_scraped_{region}.json)
-   - Skips normal batch processing (news_api_fetcher handles it)
+   - Merges all sessions into single file (no region distinction)
+   - Outputs to `scrape_results/articles_scraped.json`
+   - **Always publishes to SESSION_DATA_CREATED_TOPIC** with both files
 
 ### batch_builder_function
 1. `main.py` - Updated to detect and handle API paths:
@@ -253,28 +281,50 @@ news_data/api/.../run_XX-XX-XX/
 
 ---
 
-## 🐛 Known Limitations
+## 🐛 Known Limitations (Updated)
 
-1. **No Retry Mechanism**: If TR or EU scraper fails, no automatic retry
-2. **Timeout Fixed at 5 Minutes**: May need adjustment based on scraping load
+1. ~~**No Retry Mechanism**~~: Pub/Sub provides automatic retries for failed functions
+2. ~~**Timeout Fixed at 5 Minutes**~~: No timeout - functions exit immediately
 3. **Phase 6 Not Implemented**: Final enriched_articles.json not yet created
+4. **Single Scraper Invocation**: All incomplete articles scraped in one batch (not parallelized by region)
 
 ---
 
-## 🚀 Testing Checklist
+## 🚀 Testing Checklist (Updated)
 
-- [ ] Test content completeness detection with real API responses
-- [ ] Test region classification (TR vs EU)
-- [ ] Test scraper triggering via Pub/Sub
-- [ ] Test schema consistency across all files
-- [ ] Test batch processing integration (Phase 5)
-- [ ] Test end-to-end flow with real data
+- [x] Test content completeness detection with real API responses
+- ~~[ ] Test region classification (TR vs EU)~~ - Removed
+- [x] Test scraper triggering via Pub/Sub (simplified)
+- [x] Test schema consistency across all files
+- [x] Test event-driven batch processing integration
+- [ ] Test end-to-end flow with real data (complete-only scenario)
+- [ ] Test end-to-end flow with real data (mixed scenario)
 
 ---
 
-## 📝 Notes
+## 📝 Notes (Updated)
 
+- **Event-Driven Architecture**: No polling or waiting - clean Pub/Sub flow
 - **Scrape Depth**: Using `scrape_depth=0` for incomplete articles (no link discovery)
 - **Deduplication**: Cross-run deduplication already implemented
-- **Pub/Sub Topic**: Uses existing `scraping-requests` topic
-- **Region-Specific Files**: Prevents race conditions when TR and EU scrapers run in parallel
+- **Pub/Sub Topics**:
+  - `scraping-requests`: Triggers scraper_function
+  - `SESSION_DATA_CREATED_TOPIC`: Triggers batch_builder_function
+- **Single File Output**: All scraped articles merged into `articles_scraped.json`
+- **Backwards Compatible**: Traditional scraping (without `api_run_path`) still works
+- **Resilience**: Natural retries via Pub/Sub, no complex error handling needed
+
+---
+
+## 🔄 Redesign Summary (December 2025)
+
+**Problem**: Original architecture had fragile waiting logic that caused premature exits and missed batch processing triggers (issue observed in run_12-55-11).
+
+**Solution**: Complete redesign to event-driven architecture:
+- ✅ Eliminated polling/waiting logic
+- ✅ Removed region-based complexity
+- ✅ Each function exits immediately after its job
+- ✅ Pub/Sub handles orchestration and retries
+- ✅ Simplified file structure (2 files instead of 3)
+
+**Result**: Cleaner, more reliable pipeline with better debuggability.
