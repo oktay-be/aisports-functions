@@ -57,5 +57,6 @@ jobs:
           BATCH_PROCESSING_FOLDER=${{ vars.BATCH_PROCESSING_FOLDER }}
           VERTEX_AI_LOCATION=${{ vars.VERTEX_AI_LOCATION }}
           VERTEX_AI_MODEL=${{ vars.VERTEX_AI_MODEL }}
+          THINKING_LEVEL=${{ vars.THINKING_LEVEL }}
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}

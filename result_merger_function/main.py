@@ -56,7 +56,8 @@ BATCH_RESULTS_RAW_FOLDER = os.getenv('BATCH_RESULTS_RAW_FOLDER', 'batch_results_
 BATCH_RESULTS_MERGED_FOLDER = os.getenv('BATCH_RESULTS_MERGED_FOLDER', 'batch_results_merged/')
 DEDUP_RESULTS_FOLDER = os.getenv('DEDUP_RESULTS_FOLDER', 'dedup_results/')
 VERTEX_AI_LOCATION = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
-VERTEX_AI_MODEL = os.getenv('VERTEX_AI_MODEL', 'gemini-2.5-pro')
+VERTEX_AI_MODEL = os.getenv('VERTEX_AI_MODEL', 'gemini-3-pro-preview')
+THINKING_LEVEL = os.getenv('THINKING_LEVEL', 'LOW')
 TAXONOMY_BUCKET = os.getenv('TAXONOMY_BUCKET', 'aisports-scraping')
 TAXONOMY_PATH = os.getenv('TAXONOMY_PATH', 'taxonomy/tag_taxonomy.json')
 
@@ -534,7 +535,10 @@ Return the deduplicated articles in the standard format without losing any uniqu
                             "temperature": 0.05,   # Lower temperature for consistency
                             "topP": 0.9,
                             "maxOutputTokens": 65535,
-                            "responseMimeType": "application/json"
+                            "responseMimeType": "application/json",
+                            "thinkingConfig": {
+                                "thinkingLevel": THINKING_LEVEL
+                            }
                         }
                     }
                 }

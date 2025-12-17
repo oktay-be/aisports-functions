@@ -52,7 +52,8 @@ GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME', 'aisports-news-data')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 BATCH_PROCESSING_FOLDER = os.getenv('BATCH_PROCESSING_FOLDER', 'batch_processing/')
 VERTEX_AI_LOCATION = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
-VERTEX_AI_MODEL = os.getenv('VERTEX_AI_MODEL', 'gemini-2.5-pro')
+VERTEX_AI_MODEL = os.getenv('VERTEX_AI_MODEL', 'gemini-3-pro-preview')
+THINKING_LEVEL = os.getenv('THINKING_LEVEL', 'LOW')
 TAXONOMY_BUCKET = os.getenv('TAXONOMY_BUCKET', 'aisports-scraping')
 TAXONOMY_PATH = os.getenv('TAXONOMY_PATH', 'taxonomy/tag_taxonomy.json')
 
@@ -329,7 +330,10 @@ The data contains sports news articles that need to be processed according to th
                             "temperature": 0.1,
                             "topP": 0.95,
                             "maxOutputTokens": 65535,
-                            "responseMimeType": "application/json"
+                            "responseMimeType": "application/json",
+                            "thinkingConfig": {
+                                "thinkingLevel": THINKING_LEVEL
+                            }
                         }
                     }
                 }
