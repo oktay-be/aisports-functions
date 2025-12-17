@@ -81,7 +81,7 @@ def upload_to_gcs(bucket_name: str, blob_path: str, data: dict) -> str:
     if not storage_client:
         logger.warning("Storage client not available, skipping upload")
         return blob_path
-    
+
     try:
         bucket = storage_client.bucket(bucket_name)
         blob = bucket.blob(blob_path)
@@ -94,6 +94,63 @@ def upload_to_gcs(bucket_name: str, blob_path: str, data: dict) -> str:
     except Exception as e:
         logger.error(f"Error uploading to GCS: {e}")
         raise
+
+
+def get_existing_articles_for_date(bucket_name: str, date_str: str, year_month: str) -> set:
+    """
+    Fetch all article URLs from existing runs for a given date.
+
+    Args:
+        bucket_name: GCS bucket name
+        date_str: Date in YYYY-MM-DD format
+        year_month: Year-month in YYYY-MM format
+
+    Returns:
+        Set of article URLs that already exist
+
+    Raises:
+        Exception: If GCS read fails (caller should abort)
+    """
+    if not storage_client:
+        logger.warning("Storage client not available (local env), skipping deduplication")
+        return set()
+
+    existing_urls = set()
+    prefix = f"{NEWS_DATA_ROOT_PREFIX}api/{year_month}/{date_str}/"
+
+    try:
+        bucket = storage_client.bucket(bucket_name)
+        blobs = bucket.list_blobs(prefix=prefix)
+
+        for blob in blobs:
+            # Only process articles.json files
+            if blob.name.endswith('/articles.json'):
+                try:
+                    content = blob.download_as_string()
+                    data = json.loads(content)
+                    articles = data.get('articles', [])
+
+                    for article in articles:
+                        url = article.get('original_url') or article.get('url')
+                        if url:
+                            existing_urls.add(url)
+
+                    logger.info(f"Loaded {len(articles)} articles from {blob.name}")
+
+                except json.JSONDecodeError as e:
+                    logger.error(f"Cannot parse {blob.name}: {e}")
+                    # Continue with other files
+                except Exception as e:
+                    logger.error(f"Error reading {blob.name}: {e}")
+                    # Continue with other files
+
+        logger.info(f"Found {len(existing_urls)} existing articles for {date_str}")
+        return existing_urls
+
+    except Exception as e:
+        # CRITICAL: Cannot list blobs or access bucket
+        logger.error(f"CRITICAL: GCS error while fetching existing articles: {e}")
+        raise  # Re-raise to abort the run
 
 
 async def fetch_and_store_news(message_data: dict) -> dict:
@@ -180,6 +237,47 @@ async def fetch_and_store_news(message_data: dict) -> dict:
         article['keywords_matched'] = keywords
         processed_articles.append(article)
 
+    # Fetch existing articles from same day (CRITICAL - will abort on error)
+    try:
+        existing_urls = get_existing_articles_for_date(GCS_BUCKET_NAME, date_str, year_month)
+    except Exception as e:
+        logger.error(f"CRITICAL: Cannot fetch existing articles for deduplication: {e}")
+        return {
+            'status': 'error',
+            'error': f'Deduplication check failed: {str(e)}',
+            'triggered_by': triggered_by
+        }
+
+    # Filter duplicates
+    unique_articles = []
+    duplicate_urls = []
+    for article in processed_articles:
+        url = article.get('original_url') or article.get('url')
+        if url and url not in existing_urls:
+            unique_articles.append(article)
+            existing_urls.add(url)  # Track for this run too
+        elif url:
+            duplicate_urls.append(url)
+            logger.debug(f"Duplicate URL: {url}")
+
+    logger.info(f"Deduplication: {len(processed_articles)} fetched, {len(unique_articles)} unique, {len(duplicate_urls)} duplicates")
+
+    if duplicate_urls:
+        logger.info(f"Duplicate URLs:\n" + "\n".join(f"  - {url}" for url in duplicate_urls))
+
+    # Skip upload if all duplicates
+    if len(unique_articles) == 0:
+        logger.info(f"All {len(processed_articles)} articles were duplicates. Skipping upload.")
+        return {
+            'status': 'success',
+            'articles_count': 0,
+            'duplicates_filtered': len(duplicate_urls),
+            'message': 'All articles were duplicates from previous runs today',
+            'triggered_by': triggered_by
+        }
+
+    processed_articles = unique_articles
+
     # Upload articles
     articles_path = f"{base_path}/articles.json"
     upload_to_gcs(GCS_BUCKET_NAME, articles_path, {
@@ -195,6 +293,7 @@ async def fetch_and_store_news(message_data: dict) -> dict:
         'time_range': time_range,
         'max_results': max_results,
         'articles_count': len(processed_articles),
+        'duplicates_filtered': len(duplicate_urls),
         'api_sources_used': aggregator.get_available_sources(),
         'started_at': now.isoformat(),
         'completed_at': datetime.now(timezone.utc).isoformat()
@@ -210,11 +309,12 @@ async def fetch_and_store_news(message_data: dict) -> dict:
             upload_to_gcs(GCS_BUCKET_NAME, response_path, response_data)
             logger.info(f"Uploaded raw {api_name} response to {response_path}")
 
-    logger.info(f"Successfully stored {len(processed_articles)} articles to {base_path}")
-    
+    logger.info(f"Successfully stored {len(processed_articles)} unique articles to {base_path} ({len(duplicate_urls)} duplicates filtered)")
+
     return {
         'status': 'success',
         'articles_count': len(processed_articles),
+        'duplicates_filtered': len(duplicate_urls),
         'storage_path': base_path,
         'triggered_by': triggered_by,
         'api_sources_used': aggregator.get_available_sources()
