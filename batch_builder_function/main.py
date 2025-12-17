@@ -116,53 +116,63 @@ class BatchBuilder:
 
     def extract_path_info_from_source_files(self, source_files: List[str]) -> tuple:
         """
-        Extract collection_id, year-month, and date from source file paths.
-        
+        Extract collection_id, year-month, date, and base path from source file paths.
+
         Args:
             source_files: List of GCS file paths
-            
+
         Returns:
-            Tuple of (collection_id, year_month, date)
+            Tuple of (collection_id, year_month, date, is_api_path, base_path)
         """
         default_collection = "default"
         default_ym = datetime.now(timezone.utc).strftime("%Y-%m")
         default_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        
+
         if not source_files:
             logger.warning("No source files provided, falling back to defaults")
-            return default_collection, default_ym, default_date
-        
+            return default_collection, default_ym, default_date, False, None
+
         try:
             # Extract info from first source file path
-            # Expected pattern: .../sources/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/...
             first_file = source_files[0]
-            
-            # Use regex to extract the components
-            # Supports both batch_processing and sources paths
+
+            # Check if this is an API integration path
+            # Pattern: news_data/api/{YYYY-MM}/{YYYY-MM-DD}/run_{HH-MM-SS}/articles.json
+            api_pattern = r'(news_data/api/(\d{4}-\d{2})/(\d{4}-\d{2}-\d{2})/run_[^/]+)'
+            api_match = re.search(api_pattern, first_file)
+
+            if api_match:
+                base_path = api_match.group(1)  # e.g., news_data/api/2025-12/2025-12-17/run_10-59-06
+                year_month = api_match.group(2)
+                date = api_match.group(3)
+                logger.info(f"Detected API integration path: {base_path}")
+                return "mixed", year_month, date, True, base_path
+
+            # Traditional pattern: .../sources/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/...
             # Pattern matches: .../sources/tr/2025-11/2025-11-21/...
             pattern = r'(?:batch_processing|sources)/([^/]+)/(\d{4}-\d{2})/(\d{4}-\d{2}-\d{2})/'
             match = re.search(pattern, first_file)
-            
+
             if match:
                 collection_id = match.group(1)
                 year_month = match.group(2)
                 date = match.group(3)
                 logger.info(f"Extracted path info: collection={collection_id}, date={year_month}/{date}")
-                return collection_id, year_month, date
+                return collection_id, year_month, date, False, None
             else:
                 # Try old pattern without collection_id
                 old_pattern = r'(?:batch_processing|sources)/(\d{4}-\d{2})/(\d{4}-\d{2}-\d{2})/'
                 old_match = re.search(old_pattern, first_file)
                 if old_match:
                     logger.info(f"Matched old path pattern (no collection_id)")
-                    return default_collection, old_match.group(1), old_match.group(2)
-                    
+                    return default_collection, old_match.group(1), old_match.group(2), False, None
+
                 logger.warning(f"Could not extract path info from: {first_file}")
-                return default_collection, default_ym, default_date
-                
+                return default_collection, default_ym, default_date, False, None
+
         except Exception as e:
             logger.error(f"Error extracting path info: {e}")
-            return default_collection, default_ym, default_date
+            return default_collection, default_ym, default_date, False, None
 
     def load_prompt_template(self) -> str:
         """
@@ -354,22 +364,27 @@ The data contains sports news articles that need to be processed according to th
     def upload_batch_request_to_gcs(self, local_jsonl_path: str, batch_id: str, run_id: str, source_files: List[str]) -> str:
         """
         Upload the batch request JSONL file to GCS.
-        
+
         Args:
             local_jsonl_path: Local path to the JSONL file
             batch_id: Unique batch identifier
             run_id: Pipeline run identifier
             source_files: List of source GCS files (used to extract date)
-            
+
         Returns:
             GCS URI of the uploaded file
         """
         try:
-            # Extract date from source files to maintain consistency
-            collection_id, current_year_month, current_date = self.extract_path_info_from_source_files(source_files)
-            
-            # New path: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/requests/request.jsonl
-            gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{current_year_month}/{current_date}/{run_id}/stage1_extraction/requests/request.jsonl"
+            # Extract path info (handles both traditional and API paths)
+            collection_id, current_year_month, current_date, is_api_path, api_base_path = self.extract_path_info_from_source_files(source_files)
+
+            # Construct appropriate path based on source type
+            if is_api_path and api_base_path:
+                # API integration: news_data/api/{YYYY-MM}/{YYYY-MM-DD}/run_{HH-MM-SS}/stage1_extraction/requests/request.jsonl
+                gcs_blob_name = f"{api_base_path}/stage1_extraction/requests/request.jsonl"
+            else:
+                # Traditional: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/requests/request.jsonl
+                gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{current_year_month}/{current_date}/{run_id}/stage1_extraction/requests/request.jsonl"
             
             bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
             blob = bucket.blob(gcs_blob_name)
@@ -392,22 +407,27 @@ The data contains sports news articles that need to be processed according to th
     def submit_batch_job(self, batch_request_gcs_uri: str, batch_id: str, run_id: str, source_files: List[str]) -> tuple:
         """
         Submit a batch job to Vertex AI.
-        
+
         Args:
             batch_request_gcs_uri: GCS URI of the batch request file
             batch_id: Unique batch identifier
             run_id: Pipeline run identifier
             source_files: List of source GCS files (used to extract date)
-            
+
         Returns:
             Tuple of (job_name, output_uri) if successful, (None, None) otherwise
         """
         try:
-            # Extract date from source files to maintain consistency
-            collection_id, current_year_month, current_date = self.extract_path_info_from_source_files(source_files)
-            
-            # New path: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/results/
-            output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{current_year_month}/{current_date}/{run_id}/stage1_extraction/results/"
+            # Extract path info (handles both traditional and API paths)
+            collection_id, current_year_month, current_date, is_api_path, api_base_path = self.extract_path_info_from_source_files(source_files)
+
+            # Construct appropriate output path based on source type
+            if is_api_path and api_base_path:
+                # API integration: news_data/api/{YYYY-MM}/{YYYY-MM-DD}/run_{HH-MM-SS}/stage1_extraction/results/
+                output_uri = f"gs://{GCS_BUCKET_NAME}/{api_base_path}/stage1_extraction/results/"
+            else:
+                # Traditional: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/stage1_extraction/results/
+                output_uri = f"gs://{GCS_BUCKET_NAME}/{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{current_year_month}/{current_date}/{run_id}/stage1_extraction/results/"
             
             # Create a meaningful display name for the batch job
             # Format: aisports_{collection}_{stage}_{date}_{time}
@@ -448,7 +468,7 @@ The data contains sports news articles that need to be processed according to th
     def save_batch_metadata(self, batch_id: str, run_id: str, job_name: str, output_uri: str, source_files: List[str], triggered_by: str = "system") -> bool:
         """
         Save metadata about the batch job to GCS.
-        
+
         Args:
             batch_id: Unique batch identifier
             run_id: Pipeline run identifier
@@ -456,14 +476,14 @@ The data contains sports news articles that need to be processed according to th
             output_uri: GCS URI where results will be stored
             source_files: List of source GCS files
             triggered_by: Email of user who triggered the scrape (default: "system")
-            
+
         Returns:
             True if successful, False otherwise
         """
         try:
-            # Extract date from source files
-            collection_id, current_year_month, current_date = self.extract_path_info_from_source_files(source_files)
-            
+            # Extract path info (handles both traditional and API paths)
+            collection_id, current_year_month, current_date, is_api_path, api_base_path = self.extract_path_info_from_source_files(source_files)
+
             metadata = {
                 "batch_id": batch_id,
                 "run_id": run_id,
@@ -474,11 +494,17 @@ The data contains sports news articles that need to be processed according to th
                 "triggered_by": triggered_by,
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "model": VERTEX_AI_MODEL,
-                "location": VERTEX_AI_LOCATION
+                "location": VERTEX_AI_LOCATION,
+                "is_api_integration": is_api_path
             }
-            
-            # Path: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/metadata.json
-            gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{current_year_month}/{current_date}/{run_id}/metadata.json"
+
+            # Construct appropriate metadata path based on source type
+            if is_api_path and api_base_path:
+                # API integration: news_data/api/{YYYY-MM}/{YYYY-MM-DD}/run_{HH-MM-SS}/batch_metadata.json
+                gcs_blob_name = f"{api_base_path}/batch_metadata.json"
+            else:
+                # Traditional: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{run_id}/metadata.json
+                gcs_blob_name = f"{NEWS_DATA_ROOT_PREFIX}{BATCH_PROCESSING_FOLDER}{collection_id}/{current_year_month}/{current_date}/{run_id}/metadata.json"
             
             bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
             blob = bucket.blob(gcs_blob_name)

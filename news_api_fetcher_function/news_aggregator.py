@@ -9,6 +9,7 @@ import os
 import hashlib
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional, Set
 from enum import Enum
@@ -16,6 +17,64 @@ import asyncio
 import aiohttp
 
 logger = logging.getLogger(__name__)
+
+
+def is_content_complete(content: str) -> bool:
+    """
+    Check if article content is complete or truncated.
+
+    Truncation indicators:
+    - Ends with "[+N chars]" or "[N chars]"
+    - Content length < 200 chars (suspiciously short)
+
+    Args:
+        content: Article content string
+
+    Returns:
+        True if content appears complete, False if truncated
+    """
+    if not content:
+        return False
+
+    content_stripped = content.strip()
+
+    # Check for explicit truncation markers like "[+497 chars]" or "[497 chars]"
+    if re.search(r'\[[\+]?\d+\s*chars?\]$', content_stripped):
+        logger.debug(f"Content truncated (marker found): {content_stripped[-50:]}")
+        return False
+
+    # Check for suspiciously short content
+    if len(content_stripped) < 200:
+        logger.debug(f"Content suspiciously short: {len(content_stripped)} chars")
+        return False
+
+    return True
+
+
+def classify_region(article: dict, api_source: str) -> str:
+    """
+    Determine collection_id (tr/eu) based on language.
+
+    Args:
+        article: Article dict with language info
+        api_source: 'newsapi', 'worldnewsapi', or 'gnews'
+
+    Returns:
+        'tr' for Turkish articles, 'eu' for everything else
+    """
+    # Different APIs use different field names for language
+    if api_source == 'worldnewsapi':
+        lang = article.get('language', '').lower()
+    elif api_source == 'gnews':
+        lang = article.get('lang', '').lower()
+    else:  # newsapi or unknown
+        lang = article.get('language', 'en').lower()
+
+    # Turkish articles go to 'tr' collection, everything else to 'eu'
+    region = 'tr' if lang == 'tr' else 'eu'
+
+    logger.debug(f"Classified article as region '{region}' (language: {lang}, source: {api_source})")
+    return region
 
 
 class TimeRangeEnum(str, Enum):

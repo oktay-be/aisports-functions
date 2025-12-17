@@ -205,6 +205,10 @@ async def _process_scraping_request(message_data: dict):
     collection_id = message_data.get("collection_id", "default")  # Default to "default" if not provided
     triggered_by = message_data.get("triggered_by", "system")  # Track who triggered the scrape
 
+    # API Integration mode (for News API incomplete articles)
+    api_run_path = message_data.get("api_run_path")  # e.g., "news_data/api/2025-12/2025-12-17/run_10-59-06"
+    output_filename = message_data.get("output_filename", "articles_scraped.json")  # e.g., "articles_scraped_tr.json"
+
     if not urls or not keywords:
         logger.error("Missing 'urls' or 'keywords' in the request.")
         return
@@ -267,8 +271,62 @@ async def _process_scraping_request(message_data: dict):
         for i, session in enumerate(source_sessions):
             source_domain = session.get("source_domain", "unknown_source")
             logger.info(f"source_sessions[{i}][\"source_domain\"] = {source_domain}")
-        logger.info("=== END SOURCE DOMAINS ===")        
-        
+        logger.info("=== END SOURCE DOMAINS ===")
+
+        # API Integration mode: Save to custom path and skip batch processing
+        if api_run_path:
+            logger.info(f"API integration mode detected: saving to {api_run_path}/{output_filename}")
+
+            # Merge all sessions into single list of articles
+            all_articles = []
+            source_domains = []
+
+            for session in source_sessions:
+                articles = session.get("articles", [])
+                all_articles.extend(articles)
+                source_domain = session.get("source_domain", "unknown")
+                if source_domain not in source_domains:
+                    source_domains.append(source_domain)
+
+            # Prepare upload data in session schema format
+            upload_data = {
+                'source_domain': f"scraped_{collection_id}_combined",
+                'source_url': f"https://scraped-{collection_id}",
+                'articles': all_articles,
+                'session_metadata': {
+                    'session_id': f"scraped_{collection_id}_{run_id}",
+                    'scraped_at': datetime.now(timezone.utc).isoformat(),
+                    'collection_id': collection_id,
+                    'source_domains': source_domains,
+                    'source_count': len(source_domains),
+                    'extraction_method': 'journalist',
+                    'triggered_by': triggered_by,
+                    'api_integration': True
+                }
+            }
+
+            logger.info(f"Merged {len(all_articles)} articles from {len(source_sessions)} sessions ({len(source_domains)} sources)")
+
+            # Upload to GCS (API run folder)
+            if ENVIRONMENT != 'local':
+                try:
+                    gcs_object_path = f"{api_run_path}/{output_filename}"
+                    bucket = storage_client.bucket(GCS_BUCKET_NAME)
+                    blob = bucket.blob(gcs_object_path)
+                    blob.upload_from_string(
+                        json.dumps(upload_data, indent=2, ensure_ascii=False),
+                        content_type='application/json'
+                    )
+                    logger.info(f"✓ Saved scraped articles to gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
+                except Exception as e:
+                    logger.error(f"Error uploading to GCS: {e}", exc_info=True)
+            else:
+                logger.info(f"Local mode: Would upload to {api_run_path}/{output_filename}")
+
+            # Skip normal batch processing (no session-data-created publish)
+            logger.info("API integration mode: Skipping normal batch processing")
+            return
+
         # Initialize list to accumulate success messages for batch publishing
         success_messages = []
         
