@@ -1,0 +1,15 @@
+# Article Processor Function Dependencies
+# Google Cloud
+google-genai>=1.22.0
+google-cloud-storage>=2.0.0
+google-cloud-pubsub>=2.0.0
+
+# Data Processing
+numpy>=1.24.0
+pandas>=2.0.0
+
+# Data Validation
+pydantic>=2.0.0
+
+# Utilities (included in Python stdlib but listing for clarity)
+# hashlib, json, asyncio, logging - stdlib
