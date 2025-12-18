@@ -54,7 +54,7 @@ else:
 PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT', 'gen-lang-client-0306766464')
 SESSION_DATA_CREATED_TOPIC = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-data-created')
 PROCESSING_COMPLETED_TOPIC = os.getenv('PROCESSING_COMPLETED_TOPIC', 'processing-completed')
-GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME', 'aisports-news-data')
+GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME', 'aisports-scraping')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 VERTEX_AI_LOCATION = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
 VERTEX_AI_MODEL = os.getenv('VERTEX_AI_MODEL', 'gemini-3-pro-preview')
@@ -231,7 +231,7 @@ class ArticleProcessor:
 
         return filtered, num_removed
 
-    def extract_path_info(self, source_files: List[str]) -> Tuple[str, str, str, bool, str]:
+    def extract_path_info(self, source_files: List[str]) -> Tuple[str, str, str, str]:
         """
         Extract path components from source file URIs.
 
@@ -239,36 +239,49 @@ class ArticleProcessor:
             source_files: List of GCS URIs
 
         Returns:
-            Tuple of (collection_id, year_month, date, is_api_path, base_path)
+            Tuple of (source_type, date_str, run_id, ingestion_base_path)
         """
-        default_collection = "default"
-        default_ym = datetime.now(timezone.utc).strftime("%Y-%m")
         default_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        default_run = datetime.now(timezone.utc).strftime("%H-%M-%S")
 
         if not source_files:
-            return default_collection, default_ym, default_date, False, None
+            return "unknown", default_date, default_run, None
 
         first_file = source_files[0]
 
-        # Check for API integration path
-        api_pattern = r'(news_data/api/(\d{4}-\d{2})/(\d{4}-\d{2}-\d{2})/run_[^/]+)'
+        # New structure: ingestion/api/YYYY-MM-DD/HH-MM-SS/
+        api_pattern = r'(ingestion/api/(\d{4}-\d{2}-\d{2})/(\d{2}-\d{2}-\d{2}))'
         api_match = re.search(api_pattern, first_file)
 
         if api_match:
             base_path = api_match.group(1)
-            year_month = api_match.group(2)
-            date = api_match.group(3)
-            logger.info(f"Detected API integration path: {base_path}")
-            return "mixed", year_month, date, True, base_path
+            date_str = api_match.group(2)
+            run_id = api_match.group(3)
+            logger.info(f"Detected API ingestion path: {base_path}")
+            return "api", date_str, run_id, base_path
 
-        # Traditional pattern
-        pattern = r'(?:batch_processing|sources)/([^/]+)/(\d{4}-\d{2})/(\d{4}-\d{2}-\d{2})/'
-        match = re.search(pattern, first_file)
+        # New structure: ingestion/scrape/YYYY-MM-DD/HH-MM-SS/
+        scrape_pattern = r'(ingestion/scrape/(\d{4}-\d{2}-\d{2})/(\d{2}-\d{2}-\d{2}))'
+        scrape_match = re.search(scrape_pattern, first_file)
 
-        if match:
-            return match.group(1), match.group(2), match.group(3), False, None
+        if scrape_match:
+            base_path = scrape_match.group(1)
+            date_str = scrape_match.group(2)
+            run_id = scrape_match.group(3)
+            logger.info(f"Detected scrape ingestion path: {base_path}")
+            return "scrape", date_str, run_id, base_path
 
-        return default_collection, default_ym, default_date, False, None
+        # Legacy pattern (for backwards compatibility during transition)
+        legacy_api_pattern = r'news_data/api/\d{4}-\d{2}/(\d{4}-\d{2}-\d{2})/run_(\d{2}-\d{2}-\d{2})'
+        legacy_match = re.search(legacy_api_pattern, first_file)
+
+        if legacy_match:
+            date_str = legacy_match.group(1)
+            run_id = legacy_match.group(2)
+            logger.info(f"Detected legacy API path (migration mode)")
+            return "api_legacy", date_str, run_id, None
+
+        return "unknown", default_date, default_run, None
 
     async def process(self, gcs_files: List[str], run_id: str) -> Dict[str, Any]:
         """
@@ -329,31 +342,42 @@ class ArticleProcessor:
         # Step 6: Upload batch request and submit job
         logger.info("Step 6: Uploading batch request and submitting job...")
 
-        collection_id, year_month, date_str, is_api_path, api_base_path = self.extract_path_info(gcs_files)
+        source_type, date_str, extracted_run_id, ingestion_base_path = self.extract_path_info(gcs_files)
 
         timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
 
-        # Construct output paths
-        if is_api_path and api_base_path:
-            request_path = f"{api_base_path}/processing/requests/request.jsonl"
-            results_path = f"{api_base_path}/processing/results/"
-            output_path = f"{api_base_path}/final_articles.json"
-        else:
-            base = f"{NEWS_DATA_ROOT_PREFIX}processed/{collection_id}/{year_month}/{date_str}/{run_id}"
-            request_path = f"{base}/requests/request.jsonl"
-            results_path = f"{base}/results/"
-            output_path = f"{base}/final_articles.json"
+        # Output always goes to processing/ folder (separate from ingestion/)
+        # Structure: processing/YYYY-MM-DD/HH-MM-SS/
+        processing_base = f"processing/{date_str}/{extracted_run_id}"
+        request_path = f"{processing_base}/llm/requests/batch.jsonl"
+        results_path = f"{processing_base}/llm/results/"
+        output_path = f"{processing_base}/articles.json"
+        manifest_path = f"{processing_base}/source_manifest.json"
 
         # Upload batch request
         batch_request_uri = self.llm_processor.write_batch_jsonl(batch_requests, request_path)
 
         # Submit batch job
-        display_name = f"aisports_{collection_id}_processor_{date_str.replace('-', '')}_{timestamp}"
+        display_name = f"aisports_{source_type}_processor_{date_str.replace('-', '')}_{timestamp}"
         job_name, results_uri = self.llm_processor.submit_batch_job(
             batch_request_uri=batch_request_uri,
             output_path=results_path,
             display_name=display_name,
         )
+
+        # Save source manifest (links processing output back to ingestion source)
+        source_manifest = {
+            "source_type": source_type,
+            "source_paths": gcs_files,
+            "ingestion_base_path": ingestion_base_path,
+            "input_article_count": total_input,
+            "triggered_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+        bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
+        manifest_blob = bucket.blob(manifest_path)
+        manifest_blob.upload_from_string(json.dumps(source_manifest, indent=2), content_type='application/json')
+        logger.info(f"Source manifest saved to gs://{GCS_BUCKET_NAME}/{manifest_path}")
 
         # Save processing metadata
         metadata = {
@@ -362,7 +386,8 @@ class ArticleProcessor:
             "job_name": job_name,
             "results_uri": results_uri,
             "output_path": output_path,
-            "source_files": gcs_files,
+            "source_manifest_path": manifest_path,
+            "source_type": source_type,
             "total_input_articles": total_input,
             "articles_after_prefilter": len(articles),
             "prefilter_removed": prefilter_removed,
@@ -376,10 +401,9 @@ class ArticleProcessor:
         }
 
         # Save metadata to GCS
-        metadata_path = output_path.replace('final_articles.json', 'processing_metadata.json')
-        bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
-        blob = bucket.blob(metadata_path)
-        blob.upload_from_string(json.dumps(metadata, indent=2), content_type='application/json')
+        metadata_path = f"{processing_base}/metadata.json"
+        metadata_blob = bucket.blob(metadata_path)
+        metadata_blob.upload_from_string(json.dumps(metadata, indent=2), content_type='application/json')
 
         logger.info(f"Processing metadata saved to gs://{GCS_BUCKET_NAME}/{metadata_path}")
         logger.info(f"Batch job submitted: {job_name}")
@@ -491,7 +515,8 @@ if __name__ == "__main__":
         "run_id": "run_test_local",
         "success_messages": [
             {
-                "gcs_path": f"gs://{GCS_BUCKET_NAME}/news_data/sources/test/2025-01/2025-01-15/session_data_test.json"
+                # New path structure: ingestion/api/YYYY-MM-DD/HH-MM-SS/articles.json
+                "gcs_path": f"gs://{GCS_BUCKET_NAME}/ingestion/api/2025-01-15/12-00-00/articles.json"
             }
         ]
     }

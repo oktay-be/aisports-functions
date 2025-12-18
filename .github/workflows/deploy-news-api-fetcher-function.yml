@@ -49,7 +49,7 @@ jobs:
         environment_variables: |
           GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
           GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
-          NEWS_DATA_ROOT_PREFIX=${{ vars.NEWS_DATA_ROOT_PREFIX }}
+          INGESTION_PREFIX=${{ vars.INGESTION_PREFIX }}
           LOG_LEVEL=INFO
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}

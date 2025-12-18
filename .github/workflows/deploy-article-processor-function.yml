@@ -1,4 +1,4 @@
-name: Deploy Batch Builder Function
+name: Deploy Article Processor Function
 
 on:
   push:
@@ -6,14 +6,13 @@ on:
       - main
       - dev
     paths:
-      - 'batch_builder_function/**'
-      - 'shared_libs/**'
-      - '.github/workflows/deploy-batch-builder-function.yml'
+      - 'article_processor_function/**'
+      - '.github/workflows/deploy-article-processor-function.yml'
 
   workflow_dispatch:
 
 permissions:
-  id-token: write # This is crucial for Workload Identity Federation
+  id-token: write # Required for Workload Identity Federation
   contents: read # Allow checkout action to read the repository
 
 jobs:
@@ -34,16 +33,16 @@ jobs:
     - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v3
       with:
-        name: batch-builder
+        name: article-processor
         runtime: python312
-        memory: 1Gi
+        memory: 2Gi
         cpu: 1
         service_timeout: 540
-        max_instance_count: 10
+        max_instance_count: 5
         min_instance_count: 0
         max_instance_request_concurrency: 1
-        entry_point: build_batch
-        source_dir: batch_builder_function
+        entry_point: process_articles
+        source_dir: article_processor_function
         event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
         event_trigger_pubsub_topic: projects/${{ vars.GOOGLE_CLOUD_PROJECT }}/topics/${{ vars.SESSION_DATA_CREATED_TOPIC }}
         region: ${{ vars.REGION }}
@@ -51,12 +50,11 @@ jobs:
           GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
           GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
           SESSION_DATA_CREATED_TOPIC=${{ vars.SESSION_DATA_CREATED_TOPIC }}
-          BATCH_REQUEST_CREATED_TOPIC=${{ vars.BATCH_REQUEST_CREATED_TOPIC }}
-          NEWS_DATA_ROOT_PREFIX=${{ vars.NEWS_DATA_ROOT_PREFIX }}
-          STRUCTURED_OUTPUT=true
-          BATCH_PROCESSING_FOLDER=${{ vars.BATCH_PROCESSING_FOLDER }}
+          PROCESSING_COMPLETED_TOPIC=${{ vars.PROCESSING_COMPLETED_TOPIC }}
           VERTEX_AI_LOCATION=${{ vars.VERTEX_AI_LOCATION }}
           VERTEX_AI_MODEL=${{ vars.VERTEX_AI_MODEL }}
           THINKING_LEVEL=${{ vars.THINKING_LEVEL }}
+          EMBEDDING_MODEL=${{ vars.EMBEDDING_MODEL }}
+          SIMILARITY_THRESHOLD=${{ vars.SIMILARITY_THRESHOLD }}
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}

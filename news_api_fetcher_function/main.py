@@ -48,7 +48,8 @@ else:
 # Configuration from environment variables
 PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT', 'gen-lang-client-0306766464')
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME', 'aisports-scraping')
-NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
+# GCS path prefix for ingestion data (new structure: ingestion/api/YYYY-MM-DD/HH-MM-SS/)
+INGESTION_PREFIX = os.getenv('INGESTION_PREFIX', 'ingestion/')
 SESSION_DATA_CREATED_TOPIC = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-data-created')
 
 # Default keywords (same as scraper config)
@@ -139,14 +140,13 @@ def upload_to_gcs(bucket_name: str, blob_path: str, data: dict) -> str:
         raise
 
 
-def get_existing_articles_for_date(bucket_name: str, date_str: str, year_month: str) -> set:
+def get_existing_articles_for_date(bucket_name: str, date_str: str) -> set:
     """
     Fetch all article URLs from existing runs for a given date.
 
     Args:
         bucket_name: GCS bucket name
         date_str: Date in YYYY-MM-DD format
-        year_month: Year-month in YYYY-MM format
 
     Returns:
         Set of article URLs that already exist
@@ -159,7 +159,8 @@ def get_existing_articles_for_date(bucket_name: str, date_str: str, year_month: 
         return set()
 
     existing_urls = set()
-    prefix = f"{NEWS_DATA_ROOT_PREFIX}api/{year_month}/{date_str}/"
+    # New path structure: ingestion/api/YYYY-MM-DD/
+    prefix = f"{INGESTION_PREFIX}api/{date_str}/"
 
     try:
         bucket = storage_client.bucket(bucket_name)
@@ -291,6 +292,7 @@ async def trigger_scraper_for_incomplete_articles(
         return {'triggered': False, 'reason': 'No valid URLs'}
 
     # Prepare Pub/Sub message (simplified - no region distinction)
+    # Scraper should save to: {base_path}/scraped/articles.json
     message_data = {
         "urls": urls,
         "keywords": keywords,
@@ -298,7 +300,8 @@ async def trigger_scraper_for_incomplete_articles(
         "persist": False,   # Memory-only mode
         "collection_id": "mixed",
         "triggered_by": triggered_by,
-        "api_run_path": base_path  # Tell scraper where to save
+        "api_run_path": base_path,  # Base path for this API run
+        "scraped_output_path": f"{base_path}/scraped"  # Scraper output subfolder
     }
 
     try:
@@ -397,11 +400,10 @@ async def fetch_and_store_news(message_data: dict) -> dict:
     # Generate storage path
     now = datetime.now(timezone.utc)
     date_str = now.strftime('%Y-%m-%d')
-    year_month = now.strftime('%Y-%m')
     run_id = now.strftime('%H-%M-%S')
 
-    # Path: news_data/api/{YYYY-MM}/{YYYY-MM-DD}/run_{HH-MM-SS}/
-    base_path = f"{NEWS_DATA_ROOT_PREFIX}api/{year_month}/{date_str}/run_{run_id}"
+    # New path structure: ingestion/api/YYYY-MM-DD/HH-MM-SS/
+    base_path = f"{INGESTION_PREFIX}api/{date_str}/{run_id}"
 
     # Add source_type and dates to each article
     processed_articles = []
@@ -413,7 +415,7 @@ async def fetch_and_store_news(message_data: dict) -> dict:
 
     # Fetch existing articles from same day (CRITICAL - will abort on error)
     try:
-        existing_urls = get_existing_articles_for_date(GCS_BUCKET_NAME, date_str, year_month)
+        existing_urls = get_existing_articles_for_date(GCS_BUCKET_NAME, date_str)
     except Exception as e:
         logger.error(f"CRITICAL: Cannot fetch existing articles for deduplication: {e}")
         return {
@@ -495,9 +497,9 @@ async def fetch_and_store_news(message_data: dict) -> dict:
         session_data['articles'].extend(source_articles)
         logger.info(f"  - {source_domain}: {len(source_articles)} complete articles")
 
-    # Upload complete articles (renamed from articles.json to complete_articles.json)
-    complete_articles_path = f"{base_path}/complete_articles.json"
-    upload_to_gcs(GCS_BUCKET_NAME, complete_articles_path, session_data)
+    # Upload articles (unified naming: always articles.json)
+    articles_path = f"{base_path}/articles.json"
+    upload_to_gcs(GCS_BUCKET_NAME, articles_path, session_data)
 
     # Decide next action based on incomplete articles
     if incomplete_articles:
@@ -551,7 +553,7 @@ async def fetch_and_store_news(message_data: dict) -> dict:
         logger.info("No incomplete articles. Triggering batch processing immediately.")
 
         session_files = [{
-            'gcs_path': f"gs://{GCS_BUCKET_NAME}/{complete_articles_path}",
+            'gcs_path': f"gs://{GCS_BUCKET_NAME}/{articles_path}",
             'source_domain': 'api_complete',
             'articles_count': len(complete_articles)
         }]
