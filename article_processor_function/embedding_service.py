@@ -24,7 +24,7 @@ class EmbeddingService:
 
     BATCH_SIZE = 100  # API limit is ~250, using 100 for safety
     MODEL = "text-embedding-004"
-    MAX_TEXT_LENGTH = 2000  # Characters to embed per article
+    MAX_BODY_LENGTH = 500  # First 500 characters of body to embed
 
     def __init__(self, client: genai.Client):
         """
@@ -40,7 +40,7 @@ class EmbeddingService:
         """
         Prepare article text for embedding.
 
-        Concatenates title and body snippet for better semantic representation.
+        Concatenates title and first 500 characters of body for semantic representation.
 
         Args:
             article: Article dictionary with 'title' and 'body' fields
@@ -51,8 +51,8 @@ class EmbeddingService:
         title = article.get('title', '') or ''
         body = article.get('body', '') or ''
 
-        # Combine title (full) + body (truncated)
-        combined = f"{title} {body[:self.MAX_TEXT_LENGTH - len(title) - 1]}"
+        # Combine title (full) + first 500 chars of body
+        combined = f"{title} {body[:self.MAX_BODY_LENGTH]}"
         return combined.strip()
 
     def generate_embeddings(self, articles: List[dict]) -> np.ndarray:
