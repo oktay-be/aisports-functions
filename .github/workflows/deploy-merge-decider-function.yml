@@ -1,4 +1,4 @@
-name: Deploy Article Processor Function
+name: Deploy Merge Decider Function
 
 on:
   push:
@@ -6,8 +6,8 @@ on:
       - main
       - dev
     paths:
-      - 'article_processor_function/**'
-      - '.github/workflows/deploy-article-processor-function.yml'
+      - 'merge_decider_function/**'
+      - '.github/workflows/deploy-merge-decider-function.yml'
   workflow_dispatch:
 
 env:
@@ -40,19 +40,19 @@ jobs:
     - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v3
       with:
-        name: article-processor
+        name: merge-decider
         runtime: python312
         region: ${{ vars.REGION }}
-        source_dir: article_processor_function
-        entry_point: process_articles
+        source_dir: merge_decider_function
+        entry_point: process_groups
         event_trigger_type: google.cloud.storage.object.v1.finalized
         event_trigger_location: ${{ env.TRIGGER_LOCATION }}
         event_trigger_filters: |
           bucket=${{ vars.GCS_BUCKET_NAME }}
-        event_trigger_event_filters_path_pattern: '*/run_*/*_articles.json'
-        memory: 2Gi
+        event_trigger_event_filters_path_pattern: '*/run_*/grouped_*_articles.json'
+        memory: 1Gi
         cpu: 1
-        service_timeout: 540
+        service_timeout: 300
         max_instance_count: 5
         min_instance_count: 0
         max_instance_request_concurrency: 1
@@ -60,8 +60,6 @@ jobs:
           GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
           GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
           VERTEX_AI_LOCATION=${{ vars.VERTEX_AI_LOCATION }}
-          EMBEDDING_MODEL=${{ vars.EMBEDDING_MODEL }}
-          CROSS_RUN_DEDUP_THRESHOLD=0.7
-          GROUPING_THRESHOLD=0.8
+          VERTEX_AI_MODEL=${{ vars.VERTEX_AI_MODEL }}
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
