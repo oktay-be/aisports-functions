@@ -5,7 +5,11 @@ import base64
 import asyncio
 import logging
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
+
+# CET timezone for run timestamps
+CET = ZoneInfo("Europe/Berlin")
 
 from google.cloud import pubsub_v1, storage
 try:
@@ -229,9 +233,9 @@ async def _process_scraping_request(message_data: dict):
         # Start timing the scraping operation
         start_time = datetime.now(timezone.utc)
         logger.info(f"Scraping started at: {start_time.isoformat()}")
-        
-        # Generate Run ID for this execution (HH-MM-SS format)
-        run_id = start_time.strftime('%H-%M-%S')
+
+        # Generate Run ID for this execution (HH-MM-SS format in CET)
+        run_id = datetime.now(CET).strftime('%H-%M-%S')
         logger.info(f"Generated Run ID: {run_id}")
         
         # Perform scraping with enhanced logging

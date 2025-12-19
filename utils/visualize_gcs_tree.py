@@ -52,7 +52,7 @@ def print_tree(tree, indent=''):
 
 def main():
     today = date.today().isoformat()  # YYYY-MM-DD
-    bucket_path = f"gs://aisports-scraping/ingestion/api/{today}"
+    bucket_path = f"gs://aisports-scraping/ingestion/{today}"
 
     print(f"Fetching file list from {bucket_path}...")
 

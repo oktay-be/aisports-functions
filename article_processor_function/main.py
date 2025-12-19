@@ -20,7 +20,11 @@ import sys
 import re
 import hashlib
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Tuple, Set
+
+# CET timezone for run timestamps
+CET = ZoneInfo("Europe/Berlin")
 
 from google.cloud import storage
 from google import genai
@@ -110,8 +114,8 @@ def extract_path_info(gcs_path: str) -> Tuple[str, str, str]:
         filename = match.group(3)
         return date_str, run_id, filename
 
-    # Fallback to current time
-    now = datetime.now(timezone.utc)
+    # Fallback to current time (CET for run timestamps)
+    now = datetime.now(CET)
     return now.strftime('%Y-%m-%d'), now.strftime('%H-%M-%S'), 'unknown.json'
 
 

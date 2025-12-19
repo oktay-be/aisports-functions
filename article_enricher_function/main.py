@@ -16,7 +16,11 @@ import logging
 import sys
 import re
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import List, Dict, Any, Tuple
+
+# CET timezone for run timestamps
+CET = ZoneInfo("Europe/Berlin")
 
 from google.cloud import storage
 from google import genai
@@ -158,7 +162,8 @@ def extract_path_info(gcs_path: str) -> Tuple[str, str, str]:
     if match:
         return match.group(1), match.group(2), match.group(3)
 
-    now = datetime.now(timezone.utc)
+    # Fallback to current time (CET for run timestamps)
+    now = datetime.now(CET)
     return now.strftime('%Y-%m-%d'), now.strftime('%H-%M-%S'), 'unknown.json'
 
 

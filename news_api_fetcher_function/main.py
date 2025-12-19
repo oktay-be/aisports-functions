@@ -12,6 +12,10 @@ import base64
 import asyncio
 import logging
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
+
+# CET timezone for run timestamps
+CET = ZoneInfo("Europe/Berlin")
 from pathlib import Path
 
 from google.cloud import pubsub_v1, storage, secretmanager
@@ -159,8 +163,8 @@ def get_existing_articles_for_date(bucket_name: str, date_str: str) -> set:
         return set()
 
     existing_urls = set()
-    # New path structure: ingestion/api/YYYY-MM-DD/
-    prefix = f"{INGESTION_PREFIX}api/{date_str}/"
+    # Path structure: ingestion/YYYY-MM-DD/
+    prefix = f"{INGESTION_PREFIX}{date_str}/"
 
     try:
         bucket = storage_client.bucket(bucket_name)
@@ -397,13 +401,13 @@ async def fetch_and_store_news(message_data: dict) -> dict:
             'triggered_by': triggered_by
         }
     
-    # Generate storage path
-    now = datetime.now(timezone.utc)
+    # Generate storage path (using CET timezone for run timestamps)
+    now = datetime.now(CET)
     date_str = now.strftime('%Y-%m-%d')
     run_id = now.strftime('%H-%M-%S')
 
-    # New path structure: ingestion/api/YYYY-MM-DD/HH-MM-SS/
-    base_path = f"{INGESTION_PREFIX}api/{date_str}/{run_id}"
+    # Path structure: ingestion/YYYY-MM-DD/HH-MM-SS/
+    base_path = f"{INGESTION_PREFIX}{date_str}/{run_id}"
 
     # Add source_type and dates to each article
     processed_articles = []
