@@ -49,7 +49,7 @@ jobs:
         event_trigger_location: ${{ env.TRIGGER_LOCATION }}
         event_trigger_filters: |
           bucket=${{ vars.GCS_BUCKET_NAME }}
-        event_trigger_event_filters_path_pattern: 'ingestion/**/*articles*.json'
+        event_trigger_event_filters_path_pattern: 'ingestion/*/*/*_articles.json'
         memory: 2Gi
         cpu: 1
         service_timeout: 540

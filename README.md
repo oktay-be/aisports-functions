@@ -17,7 +17,7 @@ Triggered when fetching articles from news APIs. Produces both complete and inco
                                       │
                     ┌─────────────────┴─────────────────┐
                     ▼                                   ▼
-         complete_articles.json              incomplete_articles.json
+         complete_articles.json                   to_scrape.json
                     │                                   │
                     │                          PubSub trigger
                     │                                   ▼
@@ -116,7 +116,7 @@ gs://aisports-scraping/
 └── {YYYY-MM-DD}/
     └── {HH-MM-SS}/
         ├── complete_articles.json                    # API articles with full body
-        ├── incomplete_articles.json                  # API articles missing body
+        ├── to_scrape.json                            # API articles missing body (won't trigger processor)
         ├── scraped_incomplete_articles.json          # Scraped versions of incomplete
         ├── embeddings/
         │   ├── complete_embeddings.json

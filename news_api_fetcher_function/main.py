@@ -501,12 +501,28 @@ async def fetch_and_store_news(message_data: dict) -> dict:
         session_data['articles'].extend(source_articles)
         logger.info(f"  - {source_domain}: {len(source_articles)} complete articles")
 
-    # Upload articles (unified naming: always articles.json)
-    articles_path = f"{base_path}/articles.json"
-    upload_to_gcs(GCS_BUCKET_NAME, articles_path, session_data)
+    # Upload complete articles to complete_articles.json
+    complete_articles_path = f"{base_path}/complete_articles.json"
+    upload_to_gcs(GCS_BUCKET_NAME, complete_articles_path, session_data)
 
     # Decide next action based on incomplete articles
     if incomplete_articles:
+        # Upload incomplete articles to to_scrape.json (name avoids triggering article_processor)
+        incomplete_session_data = {
+            'source_domain': 'api_incomplete',
+            'source_url': 'https://api-news-aggregator',
+            'articles': [transform_api_article_to_session_schema(a) for a in incomplete_articles],
+            'session_metadata': {
+                'session_id': f"api_incomplete_{run_id}",
+                'fetched_at': now.isoformat(),
+                'collection_id': 'mixed',
+                'extraction_method': 'api_aggregation',
+                'needs_scraping': True
+            }
+        }
+        to_scrape_path = f"{base_path}/to_scrape.json"
+        upload_to_gcs(GCS_BUCKET_NAME, to_scrape_path, incomplete_session_data)
+
         # Trigger scraper and exit (scraper will handle batch trigger)
         logger.info(f"Triggering scraper for {len(incomplete_articles)} incomplete articles")
         scraper_trigger_info = await trigger_scraper_for_incomplete_articles(
@@ -557,7 +573,7 @@ async def fetch_and_store_news(message_data: dict) -> dict:
         logger.info("No incomplete articles. Triggering batch processing immediately.")
 
         session_files = [{
-            'gcs_path': f"gs://{GCS_BUCKET_NAME}/{articles_path}",
+            'gcs_path': f"gs://{GCS_BUCKET_NAME}/{complete_articles_path}",
             'source_domain': 'api_complete',
             'articles_count': len(complete_articles)
         }]

@@ -17,9 +17,9 @@ gsutil ls gs://aisports-scraping/ingestion/{DATE}/{RUN_ID}/
 
 ### 2. Verify required files exist
 ```bash
-# Check articles.json
+# Check complete_articles.json
 GOOGLE_APPLICATION_CREDENTIALS=/home/neo/aisports/aisports-functions/news_api_fetcher_function/gen-lang-client-0306766464-99aaf54afa07.json \
-gsutil stat gs://aisports-scraping/ingestion/{DATE}/{RUN_ID}/articles.json
+gsutil stat gs://aisports-scraping/ingestion/{DATE}/{RUN_ID}/complete_articles.json
 
 # Check metadata.json
 GOOGLE_APPLICATION_CREDENTIALS=/home/neo/aisports/aisports-functions/news_api_fetcher_function/gen-lang-client-0306766464-99aaf54afa07.json \
@@ -36,8 +36,9 @@ Expected files: `gnews.json`, `newsapi.json`, `worldnewsapi.json`
 
 ### 4. Check scrape results (if triggered)
 ```bash
+# Check for to_scrape.json and scraped_incomplete_articles.json
 GOOGLE_APPLICATION_CREDENTIALS=/home/neo/aisports/aisports-functions/news_api_fetcher_function/gen-lang-client-0306766464-99aaf54afa07.json \
-gsutil ls gs://aisports-scraping/ingestion/{DATE}/{RUN_ID}/scrape_results/
+gsutil stat gs://aisports-scraping/ingestion/{DATE}/{RUN_ID}/scraped_incomplete_articles.json
 ```
 
 ### 5. Read metadata for run status
@@ -79,11 +80,11 @@ gcloud logging read 'resource.type="cloud_run_revision" AND severity>=ERROR AND 
 
 ## Success Criteria Checklist
 
-- [ ] `articles.json` exists and is valid JSON
+- [ ] `complete_articles.json` exists and is valid JSON
 - [ ] `metadata.json` exists and contains `"status": "success"`
 - [ ] `responses/` folder contains at least one API response file
 - [ ] No ERROR severity logs during run timeframe
-- [ ] If scraping was triggered: `scrape_results/articles_scraped.json` exists
+- [ ] If scraping was triggered: `to_scrape.json` and `scraped_incomplete_articles.json` exist
 
 ## Sample Invocation
 
@@ -115,7 +116,7 @@ creds = "/home/neo/aisports/aisports-functions/news_api_fetcher_function/gen-lan
 base_path = f"gs://aisports-scraping/ingestion/{DATE}/{RUN_ID}"
 
 # Check files exist
-files_to_check = ["articles.json", "metadata.json"]
+files_to_check = ["complete_articles.json", "metadata.json"]
 for f in files_to_check:
     result = subprocess.run(
         f"GOOGLE_APPLICATION_CREDENTIALS={creds} gsutil stat {base_path}/{f}",

@@ -277,9 +277,9 @@ async def _process_scraping_request(message_data: dict):
             logger.info(f"source_sessions[{i}][\"source_domain\"] = {source_domain}")
         logger.info("=== END SOURCE DOMAINS ===")
 
-        # API Integration mode: Save to scrape_results/ and publish batch message
+        # API Integration mode: Save scraped articles
         if api_run_path:
-            logger.info(f"API integration mode detected: saving to {api_run_path}/scrape_results/articles_scraped.json")
+            logger.info(f"API integration mode detected: saving to {api_run_path}/scraped_incomplete_articles.json")
 
             # Merge all sessions into single list of articles
             all_articles = []
@@ -311,8 +311,8 @@ async def _process_scraping_request(message_data: dict):
 
             logger.info(f"Merged {len(all_articles)} articles from {len(source_sessions)} sessions ({len(source_domains)} sources)")
 
-            # Upload to GCS (scrape_results folder)
-            scraped_file_path = f"{api_run_path}/scrape_results/articles_scraped.json"
+            # Upload to GCS (same level as complete_articles.json)
+            scraped_file_path = f"{api_run_path}/scraped_incomplete_articles.json"
 
             if ENVIRONMENT != 'local':
                 try:
