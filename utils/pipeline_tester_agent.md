@@ -12,24 +12,24 @@ Agent for validating that a specific ingestion run completed successfully.
 ### 1. Check run folder exists
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=/home/neo/aisports/aisports-functions/news_api_fetcher_function/gen-lang-client-0306766464-99aaf54afa07.json \
-gsutil ls gs://aisports-scraping/ingestion/api/{DATE}/{RUN_ID}/
+gsutil ls gs://aisports-scraping/ingestion/{DATE}/{RUN_ID}/
 ```
 
 ### 2. Verify required files exist
 ```bash
 # Check articles.json
 GOOGLE_APPLICATION_CREDENTIALS=/home/neo/aisports/aisports-functions/news_api_fetcher_function/gen-lang-client-0306766464-99aaf54afa07.json \
-gsutil stat gs://aisports-scraping/ingestion/api/{DATE}/{RUN_ID}/articles.json
+gsutil stat gs://aisports-scraping/ingestion/{DATE}/{RUN_ID}/articles.json
 
 # Check metadata.json
 GOOGLE_APPLICATION_CREDENTIALS=/home/neo/aisports/aisports-functions/news_api_fetcher_function/gen-lang-client-0306766464-99aaf54afa07.json \
-gsutil stat gs://aisports-scraping/ingestion/api/{DATE}/{RUN_ID}/metadata.json
+gsutil stat gs://aisports-scraping/ingestion/{DATE}/{RUN_ID}/metadata.json
 ```
 
 ### 3. Check API responses folder
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=/home/neo/aisports/aisports-functions/news_api_fetcher_function/gen-lang-client-0306766464-99aaf54afa07.json \
-gsutil ls gs://aisports-scraping/ingestion/api/{DATE}/{RUN_ID}/responses/
+gsutil ls gs://aisports-scraping/ingestion/{DATE}/{RUN_ID}/responses/
 ```
 
 Expected files: `gnews.json`, `newsapi.json`, `worldnewsapi.json`
@@ -37,13 +37,13 @@ Expected files: `gnews.json`, `newsapi.json`, `worldnewsapi.json`
 ### 4. Check scrape results (if triggered)
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=/home/neo/aisports/aisports-functions/news_api_fetcher_function/gen-lang-client-0306766464-99aaf54afa07.json \
-gsutil ls gs://aisports-scraping/ingestion/api/{DATE}/{RUN_ID}/scrape_results/
+gsutil ls gs://aisports-scraping/ingestion/{DATE}/{RUN_ID}/scrape_results/
 ```
 
 ### 5. Read metadata for run status
 ```bash
 GOOGLE_APPLICATION_CREDENTIALS=/home/neo/aisports/aisports-functions/news_api_fetcher_function/gen-lang-client-0306766464-99aaf54afa07.json \
-gsutil cat gs://aisports-scraping/ingestion/api/{DATE}/{RUN_ID}/metadata.json | python3 -m json.tool
+gsutil cat gs://aisports-scraping/ingestion/{DATE}/{RUN_ID}/metadata.json | python3 -m json.tool
 ```
 
 ## Cloud Function Log Commands
@@ -91,10 +91,10 @@ gcloud logging read 'resource.type="cloud_run_revision" AND severity>=ERROR AND 
 Test run 14-15-14 for today (2025-12-19):
 
 1. Check GCS structure:
-   gsutil ls gs://aisports-scraping/ingestion/api/2025-12-19/14-15-14/
+   gsutil ls gs://aisports-scraping/ingestion/2025-12-19/14-15-14/
 
 2. Read metadata:
-   gsutil cat gs://aisports-scraping/ingestion/api/2025-12-19/14-15-14/metadata.json
+   gsutil cat gs://aisports-scraping/ingestion/2025-12-19/14-15-14/metadata.json
 
 3. Check logs for errors:
    gcloud logging read 'resource.type="cloud_run_revision" AND severity>=ERROR AND timestamp>="2025-12-19T14:15:00Z"' --limit=20
@@ -112,7 +112,7 @@ RUN_ID = "14-15-14"  # Change this
 DATE = date.today().isoformat()
 
 creds = "/home/neo/aisports/aisports-functions/news_api_fetcher_function/gen-lang-client-0306766464-99aaf54afa07.json"
-base_path = f"gs://aisports-scraping/ingestion/api/{DATE}/{RUN_ID}"
+base_path = f"gs://aisports-scraping/ingestion/{DATE}/{RUN_ID}"
 
 # Check files exist
 files_to_check = ["articles.json", "metadata.json"]
