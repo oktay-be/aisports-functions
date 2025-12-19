@@ -82,12 +82,13 @@ class GroupingService:
     Uses cosine similarity and Union-Find for efficient O(n^2) grouping.
     """
 
-    def __init__(self, threshold: float = 0.85):
+    def __init__(self, threshold: float = 0.80):
         """
         Initialize the grouping service.
 
         Args:
             threshold: Minimum cosine similarity for grouping (0.0 to 1.0)
+                      Default 0.80 for within-run grouping (merge decision candidates)
         """
         self.threshold = threshold
         logger.info(f"GroupingService initialized with threshold: {threshold}")

@@ -1,32 +1,34 @@
 """
-Article Processor Function - Main Entry Point
+Article Processor Function - Embedding + Cross-Run Dedup + Grouping
 
-Unified article processing pipeline using vector embeddings for grouping
-and a single LLM call per group for all processing tasks.
+Stage 2 of the article processing pipeline.
+NO LLM processing - that's handled by merge_decider and article_enricher.
 
-Replaces the two-stage batch_builder + result_merger architecture.
+Flow:
+1. Triggered by GCS file creation (complete_articles.json, scraped_*.json)
+2. Generate embeddings (title + 500 chars body)
+3. Save embeddings to embeddings/ folder
+4. Cross-run dedup against previous runs today (threshold 0.7)
+5. Group remaining articles (threshold 0.8)
+6. Output singleton_*.json and grouped_*.json
 """
 
 import os
 import json
-import base64
-import asyncio
 import logging
 import sys
 import re
 import hashlib
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import List, Dict, Any, Tuple, Set
 
-from google.cloud import pubsub_v1, storage
+from google.cloud import storage
 from google import genai
 from google.genai.types import HttpOptions
 
 from embedding_service import EmbeddingService
 from grouping_service import GroupingService, ArticleGroup
-from llm_processor import LLMProcessor
-from models import ProcessingSummary, ProcessingOutput
+from cross_run_dedup import CrossRunDeduplicator
 
 # Enhanced logging configuration
 logging.basicConfig(
@@ -43,39 +45,81 @@ logger.info("Article Processor Function initialized")
 ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
 
 if ENVIRONMENT != 'local':
-    publisher = pubsub_v1.PublisherClient()
     storage_client = storage.Client()
 else:
-    publisher = None
     storage_client = None
     logger.info("Running in local environment - skipping Google Cloud client initialization")
 
 # Configuration from environment variables
 PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT', 'gen-lang-client-0306766464')
-SESSION_DATA_CREATED_TOPIC = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-data-created')
-PROCESSING_COMPLETED_TOPIC = os.getenv('PROCESSING_COMPLETED_TOPIC', 'processing-completed')
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME', 'aisports-scraping')
-NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 VERTEX_AI_LOCATION = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
-VERTEX_AI_MODEL = os.getenv('VERTEX_AI_MODEL', 'gemini-3-pro-preview')
-THINKING_LEVEL = os.getenv('THINKING_LEVEL', 'LOW')
 
 # Embedding and grouping configuration
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'text-embedding-004')
-SIMILARITY_THRESHOLD = float(os.getenv('SIMILARITY_THRESHOLD', '0.85'))
+CROSS_RUN_DEDUP_THRESHOLD = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD', '0.7'))
+GROUPING_THRESHOLD = float(os.getenv('GROUPING_THRESHOLD', '0.8'))
+
+# File patterns that trigger this function
+TRIGGER_PATTERNS = [
+    'complete_articles.json',
+    'scraped_incomplete_articles.json',
+    'scraped_articles.json',
+]
+
+
+def extract_source_type(filename: str) -> str:
+    """
+    Extract source type from triggering filename.
+
+    Args:
+        filename: Name of the triggering file
+
+    Returns:
+        Source type string for output filenames
+    """
+    if filename == 'complete_articles.json':
+        return 'complete'
+    elif filename == 'scraped_incomplete_articles.json':
+        return 'scraped_incomplete'
+    elif filename == 'scraped_articles.json':
+        return 'scraped'
+    else:
+        return 'unknown'
+
+
+def extract_path_info(gcs_path: str) -> Tuple[str, str, str]:
+    """
+    Extract date and run_id from GCS path.
+
+    Expected path format: {date}/run_{time}/filename.json
+
+    Args:
+        gcs_path: GCS blob path
+
+    Returns:
+        Tuple of (date_str, run_id, filename)
+    """
+    # Pattern: YYYY-MM-DD/run_HH-MM-SS/filename.json
+    pattern = r'(\d{4}-\d{2}-\d{2})/run_(\d{2}-\d{2}-\d{2})/([^/]+\.json)$'
+    match = re.search(pattern, gcs_path)
+
+    if match:
+        date_str = match.group(1)
+        run_id = match.group(2)
+        filename = match.group(3)
+        return date_str, run_id, filename
+
+    # Fallback to current time
+    now = datetime.now(timezone.utc)
+    return now.strftime('%Y-%m-%d'), now.strftime('%H-%M-%S'), 'unknown.json'
 
 
 class ArticleProcessor:
     """
-    Main orchestrator for the unified article processing pipeline.
+    Main orchestrator for article processing (embed + dedup + group).
 
-    Flow:
-    1. Download session data from GCS
-    2. Pre-filter exact duplicates (code-based)
-    3. Generate embeddings
-    4. Compute similarity and form groups
-    5. Create batch LLM requests per group
-    6. Submit batch job and save results
+    NO LLM processing - outputs go to merge_decider and article_enricher.
     """
 
     def __init__(self):
@@ -84,91 +128,74 @@ class ArticleProcessor:
         self.genai_client = None
         self.embedding_service = None
         self.grouping_service = None
-        self.llm_processor = None
+        self.deduplicator = None
 
         if ENVIRONMENT != 'local':
             try:
-                # Initialize Vertex AI client
-                if "gemini-3" in VERTEX_AI_MODEL.lower():
-                    location = "global"
-                else:
-                    location = VERTEX_AI_LOCATION
-
                 http_options = HttpOptions(api_version="v1")
 
                 self.genai_client = genai.Client(
                     vertexai=True,
                     project=PROJECT_ID,
-                    location=location,
+                    location=VERTEX_AI_LOCATION,
                     http_options=http_options
                 )
-                logger.info(f"Vertex AI client initialized: project={PROJECT_ID}, location={location}")
+                logger.info(f"Vertex AI client initialized: project={PROJECT_ID}")
 
                 # Initialize services
                 self.embedding_service = EmbeddingService(self.genai_client)
-                self.grouping_service = GroupingService(threshold=SIMILARITY_THRESHOLD)
-                self.llm_processor = LLMProcessor(
-                    genai_client=self.genai_client,
+                self.grouping_service = GroupingService(threshold=GROUPING_THRESHOLD)
+                self.deduplicator = CrossRunDeduplicator(
                     storage_client=self.storage_client,
                     bucket_name=GCS_BUCKET_NAME,
-                    model=VERTEX_AI_MODEL,
-                    thinking_level=THINKING_LEVEL,
+                    threshold=CROSS_RUN_DEDUP_THRESHOLD
                 )
 
             except Exception as e:
-                logger.error(f"Failed to initialize Vertex AI client: {e}")
+                logger.error(f"Failed to initialize clients: {e}")
 
-    def download_session_data(self, gcs_uris: List[str]) -> List[Dict[str, Any]]:
+    def download_articles(self, gcs_uri: str) -> List[Dict[str, Any]]:
         """
-        Download and parse session data files from GCS.
+        Download and parse articles from GCS.
 
         Args:
-            gcs_uris: List of GCS URIs pointing to session data JSON files
+            gcs_uri: GCS URI to articles file
 
         Returns:
-            Combined list of all articles from all session files
+            List of article dictionaries
         """
-        all_articles = []
-
-        for gcs_uri in gcs_uris:
-            try:
-                if not gcs_uri.startswith('gs://'):
-                    logger.warning(f"Invalid GCS URI: {gcs_uri}")
-                    continue
-
+        try:
+            if gcs_uri.startswith('gs://'):
                 parts = gcs_uri.replace('gs://', '').split('/', 1)
                 bucket_name = parts[0]
                 blob_path = parts[1] if len(parts) > 1 else ''
+            else:
+                bucket_name = GCS_BUCKET_NAME
+                blob_path = gcs_uri
 
-                bucket = self.storage_client.bucket(bucket_name)
-                blob = bucket.blob(blob_path)
-                content = blob.download_as_text()
+            bucket = self.storage_client.bucket(bucket_name)
+            blob = bucket.blob(blob_path)
+            content = blob.download_as_text()
 
-                data = json.loads(content)
-                articles = data.get('articles', [])
+            data = json.loads(content)
+            articles = data.get('articles', [])
 
-                # Add source metadata to each article
-                for article in articles:
-                    if 'article_id' not in article or not article['article_id']:
-                        # Generate article_id from URL if missing
-                        url = article.get('url', '')
-                        article['article_id'] = hashlib.md5(url.encode()).hexdigest()[:16]
+            # Ensure article_id exists
+            for article in articles:
+                if 'article_id' not in article or not article['article_id']:
+                    url = article.get('url', '')
+                    article['article_id'] = hashlib.md5(url.encode()).hexdigest()[:16]
 
-                all_articles.extend(articles)
-                logger.info(f"Downloaded {len(articles)} articles from {gcs_uri}")
+            logger.info(f"Downloaded {len(articles)} articles from {gcs_uri}")
+            return articles
 
-            except Exception as e:
-                logger.error(f"Error downloading {gcs_uri}: {e}")
-                continue
-
-        logger.info(f"Total articles downloaded: {len(all_articles)}")
-        return all_articles
+        except Exception as e:
+            logger.error(f"Error downloading {gcs_uri}: {e}")
+            return []
 
     def pre_filter_duplicates(self, articles: List[Dict]) -> Tuple[List[Dict], int]:
         """
-        Remove exact duplicates based on URL and title similarity.
-
-        This is a fast, code-based pre-filter before embedding generation.
+        Remove exact duplicates based on URL and title.
 
         Args:
             articles: List of raw articles
@@ -180,20 +207,15 @@ class ArticleProcessor:
             return [], 0
 
         seen_urls: Set[str] = set()
-        seen_titles: Dict[str, int] = {}  # title -> index of best article
+        seen_titles: Dict[str, int] = {}
         filtered = []
 
         def normalize_url(url: str) -> str:
-            """Normalize URL for comparison."""
             url = url.lower().strip()
-            # Remove query params and fragments
             url = url.split('?')[0].split('#')[0]
-            # Remove trailing slashes
-            url = url.rstrip('/')
-            return url
+            return url.rstrip('/')
 
         def normalize_title(title: str) -> str:
-            """Normalize title for comparison."""
             return title.lower().strip()
 
         for article in articles:
@@ -203,24 +225,18 @@ class ArticleProcessor:
             norm_url = normalize_url(url)
             norm_title = normalize_title(title)
 
-            # Skip if exact URL match
             if norm_url and norm_url in seen_urls:
-                logger.debug(f"Skipping duplicate URL: {url[:50]}...")
                 continue
 
-            # Skip if exact title match (keep longer body)
             if norm_title and norm_title in seen_titles:
                 existing_idx = seen_titles[norm_title]
                 existing_body_len = len(filtered[existing_idx].get('body', ''))
                 new_body_len = len(article.get('body', ''))
 
                 if new_body_len > existing_body_len:
-                    # Replace with better version
                     filtered[existing_idx] = article
-                    logger.debug(f"Replacing duplicate title with better version: {title[:50]}...")
                 continue
 
-            # Add article
             seen_urls.add(norm_url)
             if norm_title:
                 seen_titles[norm_title] = len(filtered)
@@ -231,222 +247,245 @@ class ArticleProcessor:
 
         return filtered, num_removed
 
-    def extract_path_info(self, source_files: List[str]) -> Tuple[str, str, str, str]:
+    def save_json_to_gcs(self, data: Any, blob_path: str) -> str:
         """
-        Extract path components from source file URIs.
+        Save JSON data to GCS.
 
         Args:
-            source_files: List of GCS URIs
+            data: Data to serialize as JSON
+            blob_path: GCS blob path
 
         Returns:
-            Tuple of (source_type, date_str, run_id, ingestion_base_path)
+            GCS URI of saved file
         """
-        default_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        default_run = datetime.now(timezone.utc).strftime("%H-%M-%S")
+        bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(blob_path)
+        blob.upload_from_string(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            content_type='application/json'
+        )
 
-        if not source_files:
-            return "unknown", default_date, default_run, None
+        gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_path}"
+        logger.info(f"Saved to {gcs_uri}")
+        return gcs_uri
 
-        first_file = source_files[0]
-
-        # New structure: ingestion/api/YYYY-MM-DD/HH-MM-SS/
-        api_pattern = r'(ingestion/api/(\d{4}-\d{2}-\d{2})/(\d{2}-\d{2}-\d{2}))'
-        api_match = re.search(api_pattern, first_file)
-
-        if api_match:
-            base_path = api_match.group(1)
-            date_str = api_match.group(2)
-            run_id = api_match.group(3)
-            logger.info(f"Detected API ingestion path: {base_path}")
-            return "api", date_str, run_id, base_path
-
-        # New structure: ingestion/scrape/YYYY-MM-DD/HH-MM-SS/
-        scrape_pattern = r'(ingestion/scrape/(\d{4}-\d{2}-\d{2})/(\d{2}-\d{2}-\d{2}))'
-        scrape_match = re.search(scrape_pattern, first_file)
-
-        if scrape_match:
-            base_path = scrape_match.group(1)
-            date_str = scrape_match.group(2)
-            run_id = scrape_match.group(3)
-            logger.info(f"Detected scrape ingestion path: {base_path}")
-            return "scrape", date_str, run_id, base_path
-
-        # Legacy pattern (for backwards compatibility during transition)
-        legacy_api_pattern = r'news_data/api/\d{4}-\d{2}/(\d{4}-\d{2}-\d{2})/run_(\d{2}-\d{2}-\d{2})'
-        legacy_match = re.search(legacy_api_pattern, first_file)
-
-        if legacy_match:
-            date_str = legacy_match.group(1)
-            run_id = legacy_match.group(2)
-            logger.info(f"Detected legacy API path (migration mode)")
-            return "api_legacy", date_str, run_id, None
-
-        return "unknown", default_date, default_run, None
-
-    async def process(self, gcs_files: List[str], run_id: str) -> Dict[str, Any]:
+    def process(self, gcs_path: str) -> Dict[str, Any]:
         """
         Main processing pipeline.
 
         Args:
-            gcs_files: List of GCS URIs to process
-            run_id: Unique run identifier
+            gcs_path: GCS blob path to triggering file
 
         Returns:
             Processing result with metadata
         """
-        logger.info(f"Starting article processing: {len(gcs_files)} files, run_id={run_id}")
+        # Extract path info
+        date_str, run_id, filename = extract_path_info(gcs_path)
+        source_type = extract_source_type(filename)
+        run_folder = f"{date_str}/run_{run_id}"
 
-        # Step 1: Download all session data
-        logger.info("Step 1: Downloading session data...")
-        articles = self.download_session_data(gcs_files)
+        logger.info(f"Processing: date={date_str}, run={run_id}, source={source_type}")
+
+        # Step 1: Download articles
+        gcs_uri = f"gs://{GCS_BUCKET_NAME}/{gcs_path}"
+        articles = self.download_articles(gcs_uri)
 
         if not articles:
-            logger.warning("No articles found in session data")
+            logger.warning("No articles found")
             return {"status": "empty", "total_articles": 0}
 
         total_input = len(articles)
 
         # Step 2: Pre-filter exact duplicates
-        logger.info("Step 2: Pre-filtering exact duplicates...")
         articles, prefilter_removed = self.pre_filter_duplicates(articles)
 
         if not articles:
-            logger.warning("All articles removed by pre-filter")
-            return {"status": "empty_after_prefilter", "total_articles": total_input, "prefilter_removed": prefilter_removed}
+            return {
+                "status": "empty_after_prefilter",
+                "total_articles": total_input,
+                "prefilter_removed": prefilter_removed
+            }
 
         # Step 3: Generate embeddings
-        logger.info("Step 3: Generating embeddings...")
+        logger.info("Generating embeddings...")
         embeddings = self.embedding_service.generate_embeddings(articles)
 
-        # Step 4: Form groups
-        logger.info("Step 4: Forming article groups...")
+        # Step 4: Save embeddings for future cross-run dedup
+        article_ids = [a.get('article_id', '') for a in articles]
+        embeddings_path = f"{run_folder}/embeddings/{source_type}_embeddings.json"
+        self.deduplicator.save_embeddings(article_ids, embeddings, embeddings_path)
+
+        # Step 5: Cross-run deduplication
+        logger.info("Cross-run deduplication...")
+        articles, embeddings, dedup_log = self.deduplicator.deduplicate(
+            articles=articles,
+            embeddings=embeddings,
+            date_str=date_str,
+            current_run_id=run_id
+        )
+
+        # Save dedup log
+        if dedup_log:
+            dedup_log_path = f"{run_folder}/dedup_log_{source_type}.json"
+            self.save_json_to_gcs({
+                "dropped_articles": dedup_log,
+                "count": len(dedup_log),
+                "threshold": CROSS_RUN_DEDUP_THRESHOLD,
+                "created_at": datetime.now(timezone.utc).isoformat()
+            }, dedup_log_path)
+
+        if not articles:
+            return {
+                "status": "all_duplicates",
+                "total_articles": total_input,
+                "prefilter_removed": prefilter_removed,
+                "cross_run_removed": len(dedup_log)
+            }
+
+        # Step 6: Group articles by similarity
+        logger.info("Grouping articles...")
         groups = self.grouping_service.group_articles(embeddings)
 
-        # Separate multi-article groups from singletons
+        # Separate singletons from multi-article groups
+        singletons = [g for g in groups if g.is_singleton]
         multi_groups = [g for g in groups if not g.is_singleton]
-        singleton_groups = [g for g in groups if g.is_singleton]
 
-        logger.info(f"Grouped into {len(multi_groups)} multi-article groups and {len(singleton_groups)} singletons")
+        logger.info(f"Formed {len(singletons)} singletons, {len(multi_groups)} groups")
 
-        # Step 5: Create batch requests
-        logger.info("Step 5: Creating batch requests...")
-        prompt_template = self.llm_processor.load_prompt_template()
+        # Step 7: Build output files
+        # Normalize article fields for downstream compatibility
+        def normalize_article(article: Dict, metadata: Dict) -> Dict:
+            """Normalize raw article to ProcessedArticle-compatible format."""
+            normalized = article.copy()
+            # Field name normalization (raw -> ProcessedArticle)
+            if 'url' in normalized and 'original_url' not in normalized:
+                normalized['original_url'] = normalized.pop('url')
+            if 'published_at' in normalized and 'published_date' not in normalized:
+                normalized['published_date'] = normalized.pop('published_at')
+            # Ensure required fields have defaults
+            normalized.setdefault('merged_from_urls', [])
+            normalized.setdefault('summary', '')
+            normalized.setdefault('categories', [])
+            normalized.setdefault('key_entities', {
+                'teams': [], 'players': [], 'amounts': [],
+                'dates': [], 'competitions': [], 'locations': []
+            })
+            normalized.setdefault('content_quality', 'medium')
+            normalized.setdefault('confidence', 0.5)
+            normalized.setdefault('language', 'turkish')
+            normalized.setdefault('x_post', '')
+            normalized['_processing_metadata'] = metadata
+            return normalized
 
-        # Create requests for multi-article groups
-        batch_requests = self.llm_processor.create_batch_request(
-            groups=multi_groups + singleton_groups,  # Process all together
-            articles=articles,
-            prompt_template=prompt_template,
-        )
+        singleton_articles = []
+        for group in singletons:
+            for idx in group.article_indices:
+                article = normalize_article(articles[idx], {
+                    'source_type': source_type,
+                    'date': date_str,
+                    'run_id': run_id,
+                    'group_type': 'singleton'
+                })
+                singleton_articles.append(article)
 
-        # Step 6: Upload batch request and submit job
-        logger.info("Step 6: Uploading batch request and submitting job...")
+        grouped_articles = []
+        for group in multi_groups:
+            group_data = {
+                'group_id': group.group_id,
+                'max_similarity': group.max_similarity,
+                'articles': []
+            }
+            for idx in group.article_indices:
+                article = normalize_article(articles[idx], {
+                    'source_type': source_type,
+                    'date': date_str,
+                    'run_id': run_id,
+                    'group_type': 'grouped',
+                    'group_id': group.group_id
+                })
+                group_data['articles'].append(article)
+            grouped_articles.append(group_data)
 
-        source_type, date_str, extracted_run_id, ingestion_base_path = self.extract_path_info(gcs_files)
+        # Step 8: Save output files
+        outputs = {}
 
-        timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+        if singleton_articles:
+            singleton_path = f"{run_folder}/singleton_{source_type}_articles.json"
+            outputs['singleton'] = self.save_json_to_gcs({
+                'articles': singleton_articles,
+                'count': len(singleton_articles),
+                'source_type': source_type,
+                'created_at': datetime.now(timezone.utc).isoformat()
+            }, singleton_path)
 
-        # Output always goes to processing/ folder (separate from ingestion/)
-        # Structure: processing/YYYY-MM-DD/HH-MM-SS/
-        processing_base = f"processing/{date_str}/{extracted_run_id}"
-        request_path = f"{processing_base}/llm/requests/batch.jsonl"
-        results_path = f"{processing_base}/llm/results/"
-        output_path = f"{processing_base}/articles.json"
-        manifest_path = f"{processing_base}/source_manifest.json"
-
-        # Upload batch request
-        batch_request_uri = self.llm_processor.write_batch_jsonl(batch_requests, request_path)
-
-        # Submit batch job
-        display_name = f"aisports_{source_type}_processor_{date_str.replace('-', '')}_{timestamp}"
-        job_name, results_uri = self.llm_processor.submit_batch_job(
-            batch_request_uri=batch_request_uri,
-            output_path=results_path,
-            display_name=display_name,
-        )
-
-        # Save source manifest (links processing output back to ingestion source)
-        source_manifest = {
-            "source_type": source_type,
-            "source_paths": gcs_files,
-            "ingestion_base_path": ingestion_base_path,
-            "input_article_count": total_input,
-            "triggered_at": datetime.now(timezone.utc).isoformat(),
-        }
-
-        bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
-        manifest_blob = bucket.blob(manifest_path)
-        manifest_blob.upload_from_string(json.dumps(source_manifest, indent=2), content_type='application/json')
-        logger.info(f"Source manifest saved to gs://{GCS_BUCKET_NAME}/{manifest_path}")
+        if grouped_articles:
+            grouped_path = f"{run_folder}/grouped_{source_type}_articles.json"
+            outputs['grouped'] = self.save_json_to_gcs({
+                'groups': grouped_articles,
+                'group_count': len(grouped_articles),
+                'total_articles': sum(len(g['articles']) for g in grouped_articles),
+                'source_type': source_type,
+                'created_at': datetime.now(timezone.utc).isoformat()
+            }, grouped_path)
 
         # Save processing metadata
         metadata = {
-            "status": "batch_job_submitted",
-            "run_id": run_id,
-            "job_name": job_name,
-            "results_uri": results_uri,
-            "output_path": output_path,
-            "source_manifest_path": manifest_path,
+            "status": "success",
             "source_type": source_type,
+            "date": date_str,
+            "run_id": run_id,
+            "input_file": gcs_path,
             "total_input_articles": total_input,
-            "articles_after_prefilter": len(articles),
             "prefilter_removed": prefilter_removed,
-            "num_groups": len(groups),
-            "multi_article_groups": len(multi_groups),
-            "singleton_groups": len(singleton_groups),
-            "embedding_model": EMBEDDING_MODEL,
-            "similarity_threshold": SIMILARITY_THRESHOLD,
-            "llm_model": VERTEX_AI_MODEL,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "cross_run_removed": len(dedup_log),
+            "articles_after_dedup": len(articles),
+            "singleton_count": len(singleton_articles),
+            "group_count": len(multi_groups),
+            "grouped_article_count": sum(len(g['articles']) for g in grouped_articles),
+            "output_files": outputs,
+            "thresholds": {
+                "cross_run_dedup": CROSS_RUN_DEDUP_THRESHOLD,
+                "grouping": GROUPING_THRESHOLD
+            },
+            "created_at": datetime.now(timezone.utc).isoformat()
         }
 
-        # Save metadata to GCS
-        metadata_path = f"{processing_base}/metadata.json"
-        metadata_blob = bucket.blob(metadata_path)
-        metadata_blob.upload_from_string(json.dumps(metadata, indent=2), content_type='application/json')
+        metadata_path = f"{run_folder}/processing_metadata_{source_type}.json"
+        self.save_json_to_gcs(metadata, metadata_path)
 
-        logger.info(f"Processing metadata saved to gs://{GCS_BUCKET_NAME}/{metadata_path}")
-        logger.info(f"Batch job submitted: {job_name}")
+        logger.info(f"Processing complete: {len(singleton_articles)} singletons, {len(multi_groups)} groups")
 
         return metadata
 
 
-async def _process_request(message_data: dict):
+def process_articles(event, context):
     """
-    Process an incoming request from PubSub.
+    Cloud Function entry point.
+
+    Triggered by GCS Eventarc on file creation.
 
     Args:
-        message_data: Decoded PubSub message data
+        event: CloudEvent data
+        context: Cloud Functions context
     """
-    logger.info(f"Received processing request: {message_data}")
+    logger.info("=== ARTICLE PROCESSOR FUNCTION TRIGGERED ===")
 
-    # Validate message format
-    if message_data.get("status") != "batch_success":
-        logger.error(f"Invalid message status: {message_data.get('status')}")
+    # Extract file info from event
+    if isinstance(event, dict):
+        # GCS trigger format
+        bucket = event.get('bucket', GCS_BUCKET_NAME)
+        name = event.get('name', '')
+    else:
+        logger.error(f"Unknown event format: {type(event)}")
         return
 
-    success_messages = message_data.get("success_messages", [])
-    if not success_messages:
-        logger.error("No success messages found")
+    logger.info(f"Triggered by: gs://{bucket}/{name}")
+
+    # Check if this is a file we should process
+    filename = name.split('/')[-1] if name else ''
+    if filename not in TRIGGER_PATTERNS:
+        logger.info(f"Ignoring file: {filename} (not in trigger patterns)")
         return
-
-    # Extract GCS paths
-    gcs_files = []
-    for msg in success_messages:
-        gcs_path = msg.get("gcs_path")
-        if gcs_path and gcs_path.startswith("gs://"):
-            gcs_files.append(gcs_path)
-
-    if not gcs_files:
-        logger.error("No valid GCS files found")
-        return
-
-    # Get or generate run_id
-    run_id = message_data.get("run_id")
-    if not run_id:
-        run_id = f"run_{datetime.now(timezone.utc).strftime('%H-%M-%S')}"
-
-    logger.info(f"Processing {len(gcs_files)} files with run_id={run_id}")
 
     try:
         processor = ArticleProcessor()
@@ -455,70 +494,60 @@ async def _process_request(message_data: dict):
             logger.error("Vertex AI client not available")
             return
 
-        result = await processor.process(gcs_files, run_id)
-
-        # Publish completion message
-        if ENVIRONMENT != 'local' and result.get("status") == "batch_job_submitted":
-            completion_message = {
-                "status": "processing_job_created",
-                "run_id": run_id,
-                "job_name": result.get("job_name"),
-                "results_uri": result.get("results_uri"),
-                "output_path": result.get("output_path"),
-                "source_files_count": len(gcs_files),
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            }
-
-            topic_path = publisher.topic_path(PROJECT_ID, PROCESSING_COMPLETED_TOPIC)
-            future = publisher.publish(topic_path, json.dumps(completion_message).encode("utf-8"))
-            future.result()
-            logger.info(f"Completion message published to {PROCESSING_COMPLETED_TOPIC}")
-
-        logger.info(f"Processing complete: {result}")
+        result = processor.process(name)
+        logger.info(f"Processing result: {result.get('status')}")
 
     except Exception as e:
-        logger.error(f"Error processing request: {e}", exc_info=True)
-
-
-def process_articles(event, context):
-    """
-    Cloud Function entry point.
-
-    Triggered by PubSub message from session-data-created topic.
-
-    Args:
-        event: PubSub event data
-        context: Cloud Functions context
-    """
-    logger.info("=== ARTICLE PROCESSOR FUNCTION TRIGGERED ===")
-    logger.info(f"Event: {event}")
-
-    if isinstance(event, dict) and "data" in event:
-        try:
-            message_data = json.loads(base64.b64decode(event["data"]).decode("utf-8"))
-            logger.info(f"Decoded message: {message_data}")
-            asyncio.run(_process_request(message_data))
-        except Exception as e:
-            logger.error(f"Error processing event: {e}", exc_info=True)
-    else:
-        logger.error("Invalid PubSub message format")
+        logger.error(f"Error processing: {e}", exc_info=True)
 
     logger.info("=== ARTICLE PROCESSOR FUNCTION COMPLETED ===")
+
+
+# HTTP entry point for Cloud Run
+def main(request):
+    """
+    HTTP entry point for Cloud Run deployment.
+
+    Args:
+        request: Flask request object
+
+    Returns:
+        JSON response
+    """
+    logger.info("=== ARTICLE PROCESSOR HTTP TRIGGERED ===")
+
+    try:
+        # Parse request
+        if request.is_json:
+            data = request.get_json()
+        else:
+            data = {}
+
+        gcs_path = data.get('gcs_path', '')
+
+        if not gcs_path:
+            return {"error": "gcs_path required"}, 400
+
+        processor = ArticleProcessor()
+        result = processor.process(gcs_path)
+
+        return result, 200
+
+    except Exception as e:
+        logger.error(f"Error: {e}", exc_info=True)
+        return {"error": str(e)}, 500
 
 
 if __name__ == "__main__":
     """Local testing entry point."""
     logger.info("Running in local mode")
 
-    test_message = {
-        "status": "batch_success",
-        "run_id": "run_test_local",
-        "success_messages": [
-            {
-                # New path structure: ingestion/api/YYYY-MM-DD/HH-MM-SS/articles.json
-                "gcs_path": f"gs://{GCS_BUCKET_NAME}/ingestion/api/2025-01-15/12-00-00/articles.json"
-            }
-        ]
-    }
+    # Test with a sample path
+    test_path = "2025-01-15/run_12-00-00/complete_articles.json"
+    logger.info(f"Test path: {test_path}")
 
-    asyncio.run(_process_request(test_message))
+    date_str, run_id, filename = extract_path_info(test_path)
+    source_type = extract_source_type(filename)
+
+    logger.info(f"Extracted: date={date_str}, run={run_id}, filename={filename}")
+    logger.info(f"Source type: {source_type}")
