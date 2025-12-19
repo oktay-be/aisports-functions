@@ -56,8 +56,8 @@ news_data/
 │   │   └── batch_jobs_log.json (Log of all batch jobs)
 │   └── ...
 ├── processing_runs/
-│   ├── run_YYYYMMDD_HHMMSS/
-│   │   ├── run_metadata.json
+│   ├── YYYYMMDD_HHMMSS/
+│   │   ├── metadata.json
 │   │   ├── processing_summary.json
 │   │   ├── error_log.txt
 │   │   └── performance_metrics.json

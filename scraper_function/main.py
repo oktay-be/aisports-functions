@@ -230,8 +230,8 @@ async def _process_scraping_request(message_data: dict):
         start_time = datetime.now(timezone.utc)
         logger.info(f"Scraping started at: {start_time.isoformat()}")
         
-        # Generate Run ID for this execution
-        run_id = f"run_{start_time.strftime('%H-%M-%S')}"
+        # Generate Run ID for this execution (HH-MM-SS format)
+        run_id = start_time.strftime('%H-%M-%S')
         logger.info(f"Generated Run ID: {run_id}")
         
         # Perform scraping with enhanced logging
@@ -325,7 +325,7 @@ async def _process_scraping_request(message_data: dict):
             else:
                 logger.info(f"Local mode: Would upload to {scraped_file_path}")
 
-            # Extract run_id from api_run_path (e.g., "news_data/api/2025-12/2025-12-17/run_10-59-06" -> "run_10-59-06")
+            # Extract run_id from api_run_path (e.g., "ingestion/api/2025-12-19/14-15-14" -> "14-15-14")
             api_run_id = api_run_path.split('/')[-1] if '/' in api_run_path else run_id
 
             # Publish to SESSION_DATA_CREATED_TOPIC with both scraped and complete articles

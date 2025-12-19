@@ -92,7 +92,7 @@ def extract_path_info(gcs_path: str) -> Tuple[str, str, str]:
     """
     Extract date and run_id from GCS path.
 
-    Expected path format: {date}/run_{time}/filename.json
+    Expected path format: {date}/{time}/filename.json
 
     Args:
         gcs_path: GCS blob path
@@ -100,8 +100,8 @@ def extract_path_info(gcs_path: str) -> Tuple[str, str, str]:
     Returns:
         Tuple of (date_str, run_id, filename)
     """
-    # Pattern: YYYY-MM-DD/run_HH-MM-SS/filename.json
-    pattern = r'(\d{4}-\d{2}-\d{2})/run_(\d{2}-\d{2}-\d{2})/([^/]+\.json)$'
+    # Pattern: YYYY-MM-DD/HH-MM-SS/filename.json
+    pattern = r'(\d{4}-\d{2}-\d{2})/(\d{2}-\d{2}-\d{2})/([^/]+\.json)$'
     match = re.search(pattern, gcs_path)
 
     if match:
@@ -282,7 +282,7 @@ class ArticleProcessor:
         # Extract path info
         date_str, run_id, filename = extract_path_info(gcs_path)
         source_type = extract_source_type(filename)
-        run_folder = f"{date_str}/run_{run_id}"
+        run_folder = f"{date_str}/{run_id}"
 
         logger.info(f"Processing: date={date_str}, run={run_id}, source={source_type}")
 
@@ -543,7 +543,7 @@ if __name__ == "__main__":
     logger.info("Running in local mode")
 
     # Test with a sample path
-    test_path = "2025-01-15/run_12-00-00/complete_articles.json"
+    test_path = "2025-01-15/12-00-00/complete_articles.json"
     logger.info(f"Test path: {test_path}")
 
     date_str, run_id, filename = extract_path_info(test_path)

@@ -152,7 +152,7 @@ Return JSON array with enriched articles:
 
 def extract_path_info(gcs_path: str) -> Tuple[str, str, str]:
     """Extract date, run_id, and filename from GCS path."""
-    pattern = r'(\d{4}-\d{2}-\d{2})/run_(\d{2}-\d{2}-\d{2})/([^/]+\.json)$'
+    pattern = r'(\d{4}-\d{2}-\d{2})/(\d{2}-\d{2}-\d{2})/([^/]+\.json)$'
     match = re.search(pattern, gcs_path)
 
     if match:
@@ -324,7 +324,7 @@ class ArticleEnricher:
         """
         date_str, run_id, filename = extract_path_info(gcs_path)
         output_prefix = extract_output_prefix(filename)
-        run_folder = f"{date_str}/run_{run_id}"
+        run_folder = f"{date_str}/{run_id}"
 
         logger.info(f"Processing: date={date_str}, run={run_id}, file={filename}")
 
@@ -469,5 +469,5 @@ def main(request):
 
 if __name__ == "__main__":
     logger.info("Running in local mode")
-    test_path = "2025-01-15/run_12-00-00/singleton_complete_articles.json"
+    test_path = "2025-01-15/12-00-00/singleton_complete_articles.json"
     logger.info(f"Test path: {test_path}")

@@ -73,19 +73,17 @@ class CrossRunDeduplicator:
         blobs = bucket.list_blobs(prefix=prefix)
 
         for blob in blobs:
-            # Match pattern: {date}/run_{time}/embeddings/*.json
+            # Match pattern: {date}/{HH-MM-SS}/embeddings/*.json
             path = blob.name
             if "/embeddings/" in path and path.endswith("_embeddings.json"):
                 # Extract run_id from path
                 parts = path.split("/")
                 if len(parts) >= 3:
-                    run_folder = parts[1]  # run_{HH-MM-SS}
-                    if run_folder.startswith("run_"):
-                        run_id = run_folder.replace("run_", "")
-                        # Skip current run
-                        if run_id != current_run_id:
-                            embedding_files.append(path)
-                            logger.debug(f"Found previous embedding file: {path}")
+                    run_id = parts[1]  # HH-MM-SS
+                    # Skip current run
+                    if run_id != current_run_id:
+                        embedding_files.append(path)
+                        logger.debug(f"Found previous embedding file: {path}")
 
         logger.info(f"Found {len(embedding_files)} embedding files from previous runs")
         return embedding_files

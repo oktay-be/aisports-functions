@@ -114,7 +114,7 @@ Triggered when directly scraping URLs without API fetch. Simpler single-source f
 ```
 gs://aisports-scraping/
 └── {YYYY-MM-DD}/
-    └── run_{HH-MM-SS}/
+    └── {HH-MM-SS}/
         ├── complete_articles.json                    # API articles with full body
         ├── incomplete_articles.json                  # API articles missing body
         ├── scraped_incomplete_articles.json          # Scraped versions of incomplete
@@ -135,7 +135,7 @@ gs://aisports-scraping/
 ```
 gs://aisports-scraping/
 └── {YYYY-MM-DD}/
-    └── run_{HH-MM-SS}/
+    └── {HH-MM-SS}/
         ├── scraped_articles.json                     # Direct scraper output
         ├── embeddings/
         │   └── scraped_embeddings.json
