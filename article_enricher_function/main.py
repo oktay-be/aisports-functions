@@ -242,7 +242,7 @@ class ArticleEnricher:
                         "article_id": a.get('article_id', ''),
                         "title": a.get('title', ''),
                         "body": (a.get('body', '') or '')[:3000],
-                        "url": a.get('url', ''),
+                        "url": a.get('original_url', a.get('url', '')),
                         "source": a.get('source', ''),
                         "published_at": a.get('published_at', ''),
                         "language": a.get('language', 'en'),
