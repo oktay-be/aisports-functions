@@ -33,7 +33,7 @@ from typing import Dict, Any, List
 from datetime import datetime
 
 from google import genai
-from google.genai.types import CreateBatchJobConfig, JobState, HttpOptions
+from google.genai.types import CreateBatchJobConfig, JobState
 from google.cloud import storage
 
 # Load environment variables
@@ -108,26 +108,16 @@ class VertexAIBatchTester:
                 logger.warning(f"Batch processing not supported on global endpoint. Using us-central1 instead.")
                 self.location = "us-central1"
             
-            # Set up regional endpoint URL
-            regional_endpoint = f"https://{self.location}-aiplatform.googleapis.com/"
-            
-            http_options = HttpOptions(
-                api_version="v1",
-                base_url=regional_endpoint
-            )
-            
             self.client = genai.Client(
                 vertexai=True,
                 project=self.project_id,
-                location=self.location,
-                http_options=http_options
+                location=self.location
             )
             
             # Initialize GCS client for file operations
             self.storage_client = storage.Client(project=self.project_id)
             
             logger.info(f"VertexAIBatchTester initialized: project={self.project_id}, location={self.location}, model={model_name}")
-            logger.info(f"Using regional endpoint: {regional_endpoint}")
         except Exception as e:
             logger.error(f"Failed to initialize clients: {e}", exc_info=True)
             self.client = None

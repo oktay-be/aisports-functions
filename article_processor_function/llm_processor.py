@@ -13,7 +13,7 @@ from typing import List, Dict, Any, Optional, Tuple
 
 from google.cloud import storage
 from google import genai
-from google.genai.types import CreateBatchJobConfig, HttpOptions
+from google.genai.types import CreateBatchJobConfig
 
 from .grouping_service import ArticleGroup
 from .models import (
@@ -386,13 +386,10 @@ def create_llm_processor(
     else:
         location = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
 
-    http_options = HttpOptions(api_version="v1")
-
     genai_client = genai.Client(
         vertexai=True,
         project=project_id,
         location=location,
-        http_options=http_options,
     )
 
     storage_client = storage.Client()

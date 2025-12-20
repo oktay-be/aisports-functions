@@ -27,7 +27,7 @@ CET = ZoneInfo("Europe/Berlin")
 
 from google.cloud import storage
 from google import genai
-from google.genai.types import HttpOptions, CreateBatchJobConfig
+from google.genai.types import CreateBatchJobConfig
 
 # Enhanced logging configuration
 logging.basicConfig(
@@ -139,19 +139,11 @@ class MergeDecider:
 
         if ENVIRONMENT != 'local':
             try:
-                # Use regional endpoint for batch processing
-                regional_endpoint = f"https://{VERTEX_AI_LOCATION}-aiplatform.googleapis.com/"
-
-                http_options = HttpOptions(
-                    api_version="v1",
-                    base_url=regional_endpoint
-                )
-
+                # Use regional endpoint for batch processing - SDK handles this automatically
                 self.genai_client = genai.Client(
                     vertexai=True,
                     project=PROJECT_ID,
-                    location=VERTEX_AI_LOCATION,
-                    http_options=http_options
+                    location=VERTEX_AI_LOCATION
                 )
                 logger.info(f"Vertex AI client initialized for batch: model={VERTEX_AI_MODEL}")
 

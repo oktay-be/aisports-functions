@@ -28,7 +28,6 @@ CET = ZoneInfo("Europe/Berlin")
 
 from google.cloud import storage
 from google import genai
-from google.genai.types import HttpOptions
 
 from embedding_service import EmbeddingService
 from grouping_service import GroupingService, ArticleGroup
@@ -136,13 +135,10 @@ class ArticleProcessor:
 
         if ENVIRONMENT != 'local':
             try:
-                http_options = HttpOptions(api_version="v1")
-
                 self.genai_client = genai.Client(
                     vertexai=True,
                     project=PROJECT_ID,
-                    location=VERTEX_AI_LOCATION,
-                    http_options=http_options
+                    location=VERTEX_AI_LOCATION
                 )
                 logger.info(f"Vertex AI client initialized: project={PROJECT_ID}")
 
