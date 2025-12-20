@@ -112,7 +112,7 @@ Triggered when directly scraping URLs without API fetch. Simpler single-source f
 ### API-Triggered Run (news_api_fetcher → scraper)
 
 ```
-gs://aisports-scraping/
+gs://aisports-scraping /
 └── {YYYY-MM-DD}/
     └── {HH-MM-SS}/
         ├── complete_articles.json                    # API articles with full body
