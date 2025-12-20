@@ -250,7 +250,7 @@ class MergeDecider:
 
         bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
         blob = bucket.blob(blob_path)
-        blob.upload_from_string(jsonl_content, content_type='application/jsonl')
+        blob.upload_from_string(jsonl_content, content_type='application/x-ndjson')
 
         gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_path}"
         logger.info(f"Uploaded batch request to {gcs_uri}")
