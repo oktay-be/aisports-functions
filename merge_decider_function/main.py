@@ -265,7 +265,9 @@ class MergeDecider:
         output_uri = f"gs://{GCS_BUCKET_NAME}/{run_folder}/batch_merge/{source_type}/"
 
         try:
-            batch_config = CreateBatchJobConfig(dest=output_uri)
+            timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+            display_name = f"merge-decider-{source_type}-{timestamp}"
+            batch_config = CreateBatchJobConfig(dest=output_uri, display_name=display_name)
 
             logger.info(f"Submitting batch job...")
             logger.info(f"  Model: {VERTEX_AI_MODEL}")

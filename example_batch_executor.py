@@ -274,7 +274,8 @@ The data contains sports news articles that need to be processed according to th
             output_uri = f"gs://{self.bucket_name}/batch_results/test_batch_{timestamp}/"
             
             # Create batch job configuration
-            batch_config = CreateBatchJobConfig(dest=output_uri)
+            display_name = f"test-batch-{timestamp}"
+            batch_config = CreateBatchJobConfig(dest=output_uri, display_name=display_name)
             
             logger.info(f"Submitting batch job...")
             logger.info(f"  Model: {self.model_name}")
