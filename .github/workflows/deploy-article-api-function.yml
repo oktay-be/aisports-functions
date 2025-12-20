@@ -1,0 +1,58 @@
+name: Deploy Article API Function
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - 'article_api_function/**'
+      - '.github/workflows/deploy-article-api-function.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Authenticate to Google Cloud (Workload Identity Federation)
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ vars.WIF_POOL_ID }}/providers/${{ vars.WIF_PROVIDER_ID }}'
+        service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+        export_environment_variables: true
+
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: ${{ vars.GOOGLE_CLOUD_PROJECT }}
+
+    - name: Deploy Cloud Function
+      uses: google-github-actions/deploy-cloud-functions@v3
+      with:
+        name: article-api
+        runtime: python312
+        region: ${{ vars.REGION }}
+        source_dir: article_api_function
+        entry_point: main
+        # HTTP trigger (not event-based)
+        https_trigger_security_level: secure_always
+        memory: 512Mi
+        cpu: 1
+        service_timeout: 60
+        max_instance_count: 10
+        min_instance_count: 0
+        max_instance_request_concurrency: 80
+        environment_variables: |
+          GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
+          GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
+          API_KEY_SECRET_ID=ARTICLE_API_KEY
+          ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
+        service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
