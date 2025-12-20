@@ -7,6 +7,10 @@ Triggered by GCS Eventarc when predictions.jsonl files are created.
 Handles two types of batch outputs:
 1. Enrichment results → enriched_*.json
 2. Merge decision results → decision_*.json
+
+IMPORTANT: This function aggregates results from ALL prediction folders under a
+source_type directory, not just the triggered file. This prevents data loss when
+multiple batch jobs (e.g., singletons + decisions) create separate prediction folders.
 """
 
 import os
@@ -104,6 +108,96 @@ def download_jsonl(gcs_path: str) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.error(f"Error downloading JSONL: {e}")
         raise
+
+
+def find_all_prediction_folders(run_folder: str, job_type: str, source_type: str) -> List[str]:
+    """
+    Find all prediction folders under a source_type directory.
+
+    Multiple batch jobs may create multiple prediction-model-* folders.
+    This function finds all of them to aggregate results.
+
+    Args:
+        run_folder: Run folder path (e.g., ingestion/2025-12-20/12-29-24)
+        job_type: Job type (batch_enrichment or batch_merge)
+        source_type: Source type (complete, scraped_incomplete, etc.)
+
+    Returns:
+        List of GCS paths to predictions.jsonl files
+    """
+    try:
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        prefix = f"{run_folder}/{job_type}/{source_type}/"
+
+        prediction_files = []
+        blobs = bucket.list_blobs(prefix=prefix)
+
+        for blob in blobs:
+            if blob.name.endswith('predictions.jsonl'):
+                prediction_files.append(blob.name)
+                logger.info(f"Found prediction file: {blob.name}")
+
+        logger.info(f"Found {len(prediction_files)} prediction files under {prefix}")
+        return prediction_files
+
+    except Exception as e:
+        logger.error(f"Error listing prediction folders: {e}")
+        return []
+
+
+def aggregate_all_predictions(run_folder: str, job_type: str, source_type: str) -> List[Dict[str, Any]]:
+    """
+    Aggregate entries from ALL prediction files under a source_type.
+
+    This fixes the overwrite bug by collecting results from all prediction folders.
+
+    Args:
+        run_folder: Run folder path
+        job_type: Job type (batch_enrichment or batch_merge)
+        source_type: Source type
+
+    Returns:
+        Combined list of all prediction entries
+    """
+    prediction_files = find_all_prediction_folders(run_folder, job_type, source_type)
+
+    if not prediction_files:
+        logger.warning(f"No prediction files found for {job_type}/{source_type}")
+        return []
+
+    all_entries = []
+    truncated_count = 0
+    complete_count = 0
+
+    for pred_file in prediction_files:
+        try:
+            entries = download_jsonl(pred_file)
+
+            # Check for truncation and log warnings
+            for entry in entries:
+                finish_reason = entry.get('response', {}).get('candidates', [{}])[0].get('finishReason', 'UNKNOWN')
+                if finish_reason == 'MAX_TOKENS':
+                    truncated_count += 1
+                    logger.warning(f"TRUNCATED RESPONSE (MAX_TOKENS) in {pred_file}")
+                elif finish_reason == 'STOP':
+                    complete_count += 1
+                else:
+                    logger.warning(f"Unexpected finishReason: {finish_reason} in {pred_file}")
+
+            all_entries.extend(entries)
+        except Exception as e:
+            logger.error(f"Error processing {pred_file}: {e}")
+            continue
+
+    logger.info(f"Aggregated {len(all_entries)} entries from {len(prediction_files)} prediction files")
+    logger.info(f"  Complete responses (STOP): {complete_count}")
+    logger.info(f"  Truncated responses (MAX_TOKENS): {truncated_count}")
+
+    if truncated_count > 0:
+        logger.warning(f"WARNING: {truncated_count}/{len(all_entries)} responses were truncated!")
+        logger.warning("This may result in missing articles. Consider increasing maxOutputTokens.")
+
+    return all_entries
 
 
 def extract_response_content(entry: Dict[str, Any]) -> Dict[str, Any]:
@@ -404,12 +498,47 @@ def upload_json(data: Any, gcs_path: str) -> str:
         raise
 
 
+def deduplicate_articles(articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Deduplicate articles by article_id.
+
+    When aggregating from multiple prediction files, the same article
+    may appear multiple times. This keeps the first occurrence.
+
+    Args:
+        articles: List of articles (may contain duplicates)
+
+    Returns:
+        Deduplicated list of articles
+    """
+    seen_ids = set()
+    unique_articles = []
+
+    for article in articles:
+        article_id = article.get('article_id', '')
+        if article_id and article_id not in seen_ids:
+            seen_ids.add(article_id)
+            unique_articles.append(article)
+        elif not article_id:
+            # Keep articles without ID (shouldn't happen but be safe)
+            unique_articles.append(article)
+
+    if len(articles) != len(unique_articles):
+        logger.info(f"Deduplicated: {len(articles)} -> {len(unique_articles)} articles")
+
+    return unique_articles
+
+
 def process_batch_output(gcs_path: str) -> Dict[str, Any]:
     """
     Main processing function.
 
+    Aggregates results from ALL prediction folders under the source_type,
+    not just the single triggered file. This prevents data loss when
+    multiple batch jobs create separate prediction folders.
+
     Args:
-        gcs_path: GCS path to predictions.jsonl file
+        gcs_path: GCS path to predictions.jsonl file (trigger source)
 
     Returns:
         Processing result metadata
@@ -422,11 +551,12 @@ def process_batch_output(gcs_path: str) -> Dict[str, Any]:
 
     logger.info(f"Date: {date_str}, Run: {run_id}, Job: {job_type}, Source: {source_type}")
 
-    # Download JSONL
-    entries = download_jsonl(gcs_path)
+    # FIXED: Aggregate from ALL prediction folders, not just the triggered file
+    # This prevents overwrite bug when multiple batch jobs create separate folders
+    entries = aggregate_all_predictions(run_folder, job_type, source_type)
 
     if not entries:
-        logger.warning("No entries found in JSONL file")
+        logger.warning("No entries found in any prediction files")
         return {
             'status': 'empty',
             'entries': 0
@@ -435,6 +565,10 @@ def process_batch_output(gcs_path: str) -> Dict[str, Any]:
     # Transform based on job type
     if job_type == 'batch_enrichment':
         articles = transform_enrichment_results(entries)
+
+        # Deduplicate articles by article_id (in case of overlapping batches)
+        articles = deduplicate_articles(articles)
+
         output_filename = f"enriched_{source_type}_articles.json"
 
         # Upload transformed JSON

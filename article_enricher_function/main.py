@@ -248,7 +248,7 @@ class ArticleEnricher:
                     ],
                     "generationConfig": {
                         "temperature": 0.2,
-                        "maxOutputTokens": 8192,
+                        "maxOutputTokens": 65535,
                         "responseMimeType": "application/json"
                     }
                 }
