@@ -29,6 +29,18 @@ from google.cloud import storage
 from google import genai
 from google.genai.types import CreateBatchJobConfig
 
+# Import response schema (following result_merger_function pattern)
+try:
+    from models import VERTEX_AI_RESPONSE_SCHEMA
+    SCHEMA_AVAILABLE = True
+except ImportError:
+    SCHEMA_AVAILABLE = False
+    VERTEX_AI_RESPONSE_SCHEMA = None
+
+# Allow env var override for structured output (default: true if schema available)
+STRUCTURED_OUTPUT = os.getenv('STRUCTURED_OUTPUT', 'true').lower() == 'true'
+SCHEMA_AVAILABLE = SCHEMA_AVAILABLE and STRUCTURED_OUTPUT
+
 # Enhanced logging configuration
 logging.basicConfig(
     level=logging.INFO,
@@ -125,11 +137,14 @@ Return JSON with format:
             },
             "confidence": 0.85,
             "content_quality": "high",
-            "language": "turkish"
+            "language": "en",
+            "region": "eu"
         }
     ]
 }
 ```
+
+**IMPORTANT:** Preserve the exact `language` and `region` values from the input article. Do NOT change these fields.
 
 ## Articles to Process:
 """
@@ -220,7 +235,7 @@ class ArticleEnricher:
         for i in range(0, len(articles), batch_size):
             batch = articles[i:i + batch_size]
 
-            # Prepare input for this batch
+            # Prepare input for this batch - include language/region for preservation
             llm_input = {
                 "articles": [
                     {
@@ -229,7 +244,9 @@ class ArticleEnricher:
                         "body": (a.get('body', '') or '')[:3000],
                         "url": a.get('url', ''),
                         "source": a.get('source', ''),
-                        "published_at": a.get('published_at', '')
+                        "published_at": a.get('published_at', ''),
+                        "language": a.get('language', 'en'),
+                        "region": a.get('region', 'eu')
                     }
                     for a in batch
                 ]
@@ -253,6 +270,10 @@ class ArticleEnricher:
                     }
                 }
             }
+
+            # Add structured output schema if available (same pattern as result_merger_function)
+            if SCHEMA_AVAILABLE:
+                request_entry["request"]["generationConfig"]["responseSchema"] = VERTEX_AI_RESPONSE_SCHEMA
 
             batch_requests.append(request_entry)
 

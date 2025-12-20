@@ -315,6 +315,7 @@ def transform_enrichment_results(entries: List[Dict[str, Any]]) -> List[Dict[str
                 'content_quality': article.get('content_quality', 'medium'),
                 'confidence': article.get('confidence', 0.8),
                 'language': article.get('language', 'tr'),
+                'region': article.get('region', 'eu'),
                 '_processing_metadata': processing_metadata,
                 '_merge_metadata': article.get('_merge_metadata')  # Preserve merge metadata
             })

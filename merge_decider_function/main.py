@@ -29,6 +29,18 @@ from google.cloud import storage
 from google import genai
 from google.genai.types import CreateBatchJobConfig
 
+# Import response schema (following result_merger_function pattern)
+try:
+    from models import VERTEX_AI_RESPONSE_SCHEMA
+    SCHEMA_AVAILABLE = True
+except ImportError:
+    SCHEMA_AVAILABLE = False
+    VERTEX_AI_RESPONSE_SCHEMA = None
+
+# Allow env var override for structured output (default: true if schema available)
+STRUCTURED_OUTPUT = os.getenv('STRUCTURED_OUTPUT', 'true').lower() == 'true'
+SCHEMA_AVAILABLE = SCHEMA_AVAILABLE and STRUCTURED_OUTPUT
+
 # Enhanced logging configuration
 logging.basicConfig(
     level=logging.INFO,
@@ -217,6 +229,10 @@ class MergeDecider:
                     }
                 }
             }
+
+            # Add structured output schema if available (same pattern as result_merger_function)
+            if SCHEMA_AVAILABLE:
+                request_entry["request"]["generationConfig"]["responseSchema"] = VERTEX_AI_RESPONSE_SCHEMA
 
             batch_requests.append(request_entry)
 
