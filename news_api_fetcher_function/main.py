@@ -107,6 +107,11 @@ def transform_api_article_to_session_schema(article: dict) -> dict:
     # Generate article_id
     article_id = generate_article_id(url) if url else ""
 
+    # Get language and map to region
+    # tr -> tr region, everything else -> eu region
+    language = article.get('language', 'en')
+    region = 'tr' if language == 'tr' else 'eu'
+
     # Transform to session schema
     transformed = {
         "url": url,
@@ -118,7 +123,9 @@ def transform_api_article_to_session_schema(article: dict) -> dict:
         "source": domain,
         "extraction_method": f"api:{article.get('api_source', 'unknown')}",
         "site": domain,
-        "article_id": article_id
+        "article_id": article_id,
+        "language": language,
+        "region": region
     }
 
     return transformed

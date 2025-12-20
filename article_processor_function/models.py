@@ -22,6 +22,8 @@ class RawArticle(BaseModel):
     source: str = ""
     published_at: Optional[str] = None
     keywords_used: List[str] = Field(default_factory=list)
+    language: str = "en"
+    region: str = "eu"  # 'tr' or 'eu' - mapped from language
 
 
 class ArticleGroupInput(BaseModel):
@@ -75,6 +77,7 @@ class ProcessedArticle(BaseModel):
     content_quality: str = "medium"  # "high", "medium", "low"
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)  # Overall article confidence
     language: str = "turkish"
+    region: str = "eu"  # 'tr' or 'eu' - preserved from input or decided by LLM during merge
     summary_translation: Optional[str] = None
     x_post: str = ""
     _grouping_metadata: Optional[GroupingMetadata] = None
@@ -211,6 +214,10 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                         "type": "STRING",
                         "description": "Detected language code"
                     },
+                    "region": {
+                        "type": "STRING",
+                        "description": "Region: 'tr' for Turkish content, 'eu' for all other languages. When merging articles from different regions, preserve the region from the most complete source article."
+                    },
                     "summary_translation": {
                         "type": "STRING",
                         "description": "Turkish translation if not Turkish",
@@ -232,6 +239,7 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                     "content_quality",
                     "confidence",
                     "language",
+                    "region",
                     "x_post"
                 ]
             }

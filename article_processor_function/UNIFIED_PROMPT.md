@@ -20,6 +20,8 @@ Each article has:
 - `source`: Source domain
 - `published_at`: Publication timestamp
 - `keywords_used`: Keywords that matched this article
+- `language`: Language code (e.g., "tr", "en", "es", "it")
+- `region`: Region code - "tr" for Turkish content, "eu" for all others
 
 ## YOUR TASKS
 
@@ -53,6 +55,7 @@ When merging articles:
 7. **categories**: Union of all applicable tags
 8. **published_date**: Use the EARLIEST date
 9. **content_quality**: Use the HIGHEST quality
+10. **region**: Use from the HIGHEST-QUALITY/MOST-COMPLETE article (the one providing original_url)
 
 ### Task 3: FOR EACH OUTPUT ARTICLE
 
@@ -156,6 +159,7 @@ Return JSON:
       "content_quality": "high",
       "confidence": 0.92,
       "language": "turkish",
+      "region": "tr",
       "summary_translation": null,
       "x_post": "Derbi Galatasaray'in! Osimhen'in 2 goluyle sari-kirmizililar Fenerbahce'yi 3-1 yendi. Icardi penalti kacirdi. #Galatasaray #Derbi"
     }
@@ -201,8 +205,9 @@ Article B: "Osimhen injury concern after derby goals" (injury news)
 
 1. **PRESERVE article_id**: Copy exactly from input - never generate new IDs
 2. **PRESERVE LANGUAGE**: Summary in original language, x_post always Turkish
-3. **NO DATA LOSS**: When merging, include ALL unique facts from ALL articles
-4. **NO CLICKBAIT**: x_post must contain actual information
-5. **CONSERVATIVE MERGING**: When uncertain, KEEP_SEPARATE is safer
+3. **PRESERVE REGION**: When merging mixed-region groups, use region from the most complete article
+4. **NO DATA LOSS**: When merging, include ALL unique facts from ALL articles
+5. **NO CLICKBAIT**: x_post must contain actual information
+6. **CONSERVATIVE MERGING**: When uncertain, KEEP_SEPARATE is safer
 
 Process the provided article group according to these specifications and return the structured JSON result.
