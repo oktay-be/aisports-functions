@@ -56,6 +56,13 @@ jobs:
           API_KEY_SECRET_ID=ARTICLE_API_KEY
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+    - name: Allow unauthenticated access
+      run: |
+        gcloud run services add-iam-policy-binding article-api \
+          --region=${{ vars.REGION }} \
+          --member="allUsers" \
+          --role="roles/run.invoker"
         flags: |
           --allow-unauthenticated
           --service-account=${{ vars.GCP_SERVICE_ACCOUNT }}
