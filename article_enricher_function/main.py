@@ -90,6 +90,16 @@ For each article provided, generate:
 6. **confidence** - Overall confidence score (0.0-1.0)
 7. **content_quality** - "high", "medium", or "low"
 
+## IMPORTANT: Data Preservation
+You MUST preserve the following fields exactly as they appear in the input:
+- `article_id`
+- `original_url` (mapped from `url` in input)
+- `merged_from_urls`
+- `published_date` (mapped from `published_at` in input)
+- `source`
+- `language`
+- `region`
+
 ## Category Taxonomy (STRICT)
 
 **Sport Tags (for non-football):**
@@ -122,6 +132,8 @@ Return JSON with format:
     "enriched_articles": [
         {
             "article_id": "original_id",
+            "original_url": "http://...",
+            "merged_from_urls": ["http://...", "http://..."],
             "title": "original_title",
             "summary": "...",
             "x_post": "Turkish X post with #hashtags",
@@ -243,6 +255,7 @@ class ArticleEnricher:
                         "title": a.get('title', ''),
                         "body": (a.get('body', '') or '')[:3000],
                         "url": a.get('original_url', a.get('url', '')),
+                        "merged_from_urls": a.get('merged_from_urls', []),
                         "source": a.get('source', ''),
                         "published_at": a.get('published_at', ''),
                         "language": a.get('language', 'en'),

@@ -63,6 +63,18 @@ EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'text-embedding-004')
 CROSS_RUN_DEDUP_THRESHOLD = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD', '0.7'))
 GROUPING_THRESHOLD = float(os.getenv('GROUPING_THRESHOLD', '0.8'))
 
+# Language normalization map
+LANGUAGE_MAP = {
+    'turkish': 'tr',
+    'english': 'en',
+    'portuguese': 'pt',
+    'spanish': 'es',
+    'french': 'fr',
+    'german': 'de',
+    'italian': 'it',
+    'dutch': 'nl',
+}
+
 # File patterns that trigger this function
 TRIGGER_PATTERNS = [
     'complete_articles.json',
@@ -180,11 +192,20 @@ class ArticleProcessor:
             data = json.loads(content)
             articles = data.get('articles', [])
 
-            # Ensure article_id exists
+            # Ensure article_id exists and original_url is set
             for article in articles:
                 if 'article_id' not in article or not article['article_id']:
                     url = article.get('url', '')
                     article['article_id'] = hashlib.md5(url.encode()).hexdigest()[:16]
+                
+                # Ensure original_url is preserved
+                if 'original_url' not in article:
+                    article['original_url'] = article.get('url', '')
+
+                # Normalize language
+                lang = article.get('language', '').lower().strip()
+                if lang in LANGUAGE_MAP:
+                    article['language'] = LANGUAGE_MAP[lang]
 
             logger.info(f"Downloaded {len(articles)} articles from {gcs_uri}")
             return articles

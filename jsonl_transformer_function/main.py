@@ -51,6 +51,18 @@ else:
 PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT', 'gen-lang-client-0306766464')
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME', 'aisports-scraping')
 
+# Language normalization map
+LANGUAGE_MAP = {
+    'turkish': 'tr',
+    'english': 'en',
+    'portuguese': 'pt',
+    'spanish': 'es',
+    'french': 'fr',
+    'german': 'de',
+    'italian': 'it',
+    'dutch': 'nl',
+}
+
 
 def extract_path_info(gcs_path: str) -> Tuple[str, str, str, str]:
     """
@@ -300,6 +312,13 @@ def transform_enrichment_results(entries: List[Dict[str, Any]]) -> List[Dict[str
                 'enrichment_processor': 'batch_enrichment'
             }
 
+            # Normalize language
+            raw_lang = article.get('language', 'tr')
+            lang = 'tr'
+            if isinstance(raw_lang, str):
+                clean_lang = raw_lang.lower().strip()
+                lang = LANGUAGE_MAP.get(clean_lang, clean_lang)
+
             enriched_articles.append({
                 'article_id': article.get('article_id', ''),
                 'original_url': article.get('original_url', article.get('url', '')),  # Fallback to url
@@ -314,7 +333,7 @@ def transform_enrichment_results(entries: List[Dict[str, Any]]) -> List[Dict[str
                 'key_entities': key_entities,
                 'content_quality': article.get('content_quality', 'medium'),
                 'confidence': article.get('confidence', 0.8),
-                'language': article.get('language', 'tr'),
+                'language': lang,
                 'region': article.get('region', 'eu'),
                 '_processing_metadata': processing_metadata,
                 '_merge_metadata': article.get('_merge_metadata')  # Preserve merge metadata
@@ -458,6 +477,9 @@ def apply_merge_decisions(decisions: List[Dict], groups_data: Dict) -> List[Dict
                 primary_article = articles[0].copy()
 
             if primary_article:
+                # Explicitly set merged_from_urls on the article object
+                primary_article['merged_from_urls'] = merged_urls
+                
                 primary_article['_merge_metadata'] = {
                     'decision': 'MERGED',
                     'reason': decision.get('reason', ''),
