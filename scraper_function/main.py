@@ -55,7 +55,7 @@ GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 # JOURNALIST_LOG_LEVEL already defined above for logging configuration
 
-def is_first_run_of_day(storage_client, bucket_name, date_obj, collection_id="default"):
+def is_first_run_of_day(storage_client, bucket_name, date_obj, region="eu"):
     """
     Check if this is the first run of the day by checking if the batch_processing folder exists for today.
     Returns True if no batch processing has been done today (first run), False otherwise.
@@ -67,8 +67,8 @@ def is_first_run_of_day(storage_client, bucket_name, date_obj, collection_id="de
         current_year_month = date_obj.strftime("%Y-%m")
         current_date = date_obj.strftime("%Y-%m-%d")
         
-        # Check batch_processing folder: news_data/batch_processing/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/
-        prefix = f"{NEWS_DATA_ROOT_PREFIX}batch_processing/{collection_id}/{current_year_month}/{current_date}/"
+        # Check batch_processing folder: news_data/batch_processing/{region}/{YYYY-MM}/{YYYY-MM-DD}/
+        prefix = f"{NEWS_DATA_ROOT_PREFIX}batch_processing/{region}/{current_year_month}/{current_date}/"
         
         logger.info(f"Checking if first run of day by inspecting: {prefix}")
         
@@ -85,7 +85,7 @@ def is_first_run_of_day(storage_client, bucket_name, date_obj, collection_id="de
         # Default to False (assume not first run) to avoid over-fetching
         return False
 
-def get_processed_urls_last_n_days(storage_client, bucket_name, date_obj, collection_id="default", days=7):
+def get_processed_urls_last_n_days(storage_client, bucket_name, date_obj, region="eu", days=7):
     """
     Retrieves a set of already processed URLs from source session data for the last N days.
     Used when it's the first run of the day to avoid re-scraping recent articles.
@@ -97,7 +97,7 @@ def get_processed_urls_last_n_days(storage_client, bucket_name, date_obj, collec
     try:
         bucket = storage_client.bucket(bucket_name)
         
-        logger.info(f"Fetching processed URLs from last {days} days for collection '{collection_id}'")
+        logger.info(f"Fetching processed URLs from last {days} days for collection '{region}'")
         
         # Iterate through the last N days
         for day_offset in range(days):
@@ -105,8 +105,8 @@ def get_processed_urls_last_n_days(storage_client, bucket_name, date_obj, collec
             year_month = check_date.strftime("%Y-%m")
             date_str = check_date.strftime("%Y-%m-%d")
             
-            # Prefix: news_data/sources/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/
-            prefix = f"{NEWS_DATA_ROOT_PREFIX}sources/{collection_id}/{year_month}/{date_str}/"
+            # Prefix: news_data/sources/{region}/{YYYY-MM}/{YYYY-MM-DD}/
+            prefix = f"{NEWS_DATA_ROOT_PREFIX}sources/{region}/{year_month}/{date_str}/"
             
             logger.info(f"  Scanning day {day_offset + 1}/{days}: {date_str} (prefix: {prefix})")
             
@@ -142,7 +142,7 @@ def get_processed_urls_last_n_days(storage_client, bucket_name, date_obj, collec
     
     return processed_urls
 
-def get_processed_urls_for_date(storage_client, bucket_name, date_obj, collection_id="default"):
+def get_processed_urls_for_date(storage_client, bucket_name, date_obj, region="eu"):
     """
     Retrieves a set of already processed URLs from raw source session data for the given date and collection.
     This ensures we don't re-scrape or re-process articles that have already been collected today.
@@ -155,8 +155,8 @@ def get_processed_urls_for_date(storage_client, bucket_name, date_obj, collectio
         current_year_month = date_obj.strftime("%Y-%m")
         current_date = date_obj.strftime("%Y-%m-%d")
         
-        # Prefix: news_data/sources/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/
-        prefix = f"{NEWS_DATA_ROOT_PREFIX}sources/{collection_id}/{current_year_month}/{current_date}/"
+        # Prefix: news_data/sources/{region}/{YYYY-MM}/{YYYY-MM-DD}/
+        prefix = f"{NEWS_DATA_ROOT_PREFIX}sources/{region}/{current_year_month}/{current_date}/"
         
         logger.info(f"Checking for existing processed URLs in source files: {prefix}")
         
@@ -206,7 +206,7 @@ async def _process_scraping_request(message_data: dict):
     scrape_depth = message_data.get("scrape_depth", 1)  # Default to 1 if not provided
     persist = message_data.get("persist", True)  # Default to True if not provided
     log_level = message_data.get("log_level", JOURNALIST_LOG_LEVEL)  # Use payload log_level or env var
-    collection_id = message_data.get("collection_id", "default")  # Default to "default" if not provided
+    region = message_data.get("region", "eu")  # Default to "eu" if not provided
     triggered_by = message_data.get("triggered_by", "system")  # Track who triggered the scrape
 
     # API Integration mode (for News API incomplete articles)
@@ -300,7 +300,6 @@ async def _process_scraping_request(message_data: dict):
                 'session_metadata': {
                     'session_id': f"api_scraper_{run_id}",
                     'scraped_at': datetime.now(timezone.utc).isoformat(),
-                    'collection_id': 'mixed',
                     'source_domains': source_domains,
                     'source_count': len(source_domains),
                     'extraction_method': 'journalist',
@@ -388,14 +387,14 @@ async def _process_scraping_request(message_data: dict):
         processed_urls = set()
         if ENVIRONMENT != 'local':
             # Check if this is the first run of the day
-            first_run = is_first_run_of_day(storage_client, GCS_BUCKET_NAME, start_time, collection_id)
+            first_run = is_first_run_of_day(storage_client, GCS_BUCKET_NAME, start_time, region)
             
             if first_run:
                 logger.info("First run of the day detected - scanning last 7 days for deduplication")
-                processed_urls = get_processed_urls_last_n_days(storage_client, GCS_BUCKET_NAME, start_time, collection_id, days=7)
+                processed_urls = get_processed_urls_last_n_days(storage_client, GCS_BUCKET_NAME, start_time, region, days=7)
             else:
                 logger.info("Subsequent run - scanning only today's data for deduplication")
-                processed_urls = get_processed_urls_for_date(storage_client, GCS_BUCKET_NAME, start_time, collection_id)
+                processed_urls = get_processed_urls_for_date(storage_client, GCS_BUCKET_NAME, start_time, region)
 
         # Process each session
         for i, session in enumerate(source_sessions):
@@ -455,8 +454,8 @@ async def _process_scraping_request(message_data: dict):
             current_year_month = start_time.strftime("%Y-%m")
             current_date = start_time.strftime("%Y-%m-%d")
             
-            # New structure: news_data/sources/{collection_id}/{YYYY-MM}/{YYYY-MM-DD}/{source_domain}/session_data_{source_domain}_{session_id}.json
-            gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{collection_id}/{current_year_month}/{current_date}/{source_domain}/session_data_{source_domain}_{session_id}.json"
+            # New structure: news_data/sources/{region}/{YYYY-MM}/{YYYY-MM-DD}/{source_domain}/session_data_{source_domain}_{session_id}.json
+            gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{region}/{current_year_month}/{current_date}/{source_domain}/session_data_{source_domain}_{session_id}.json"
 
             if ENVIRONMENT == 'local':                
                 # Create success message for batch processing

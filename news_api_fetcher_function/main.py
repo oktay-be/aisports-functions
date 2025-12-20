@@ -309,7 +309,6 @@ async def trigger_scraper_for_incomplete_articles(
         "keywords": keywords,
         "scrape_depth": 0,  # No link discovery, just scrape given URLs
         "persist": False,   # Memory-only mode
-        "collection_id": "mixed",
         "triggered_by": triggered_by,
         "api_run_path": base_path,  # Base path for this API run
         "scraped_output_path": f"{base_path}/scraped"  # Scraper output subfolder
@@ -497,7 +496,6 @@ async def fetch_and_store_news(message_data: dict) -> dict:
         'session_metadata': {
             'session_id': f"api_{run_id}",
             'fetched_at': now.isoformat(),
-            'collection_id': 'mixed',
             'source_count': len(articles_by_source),
             'extraction_method': 'api_aggregation'
         }
@@ -522,7 +520,6 @@ async def fetch_and_store_news(message_data: dict) -> dict:
             'session_metadata': {
                 'session_id': f"api_incomplete_{run_id}",
                 'fetched_at': now.isoformat(),
-                'collection_id': 'mixed',
                 'extraction_method': 'api_aggregation',
                 'needs_scraping': True
             }
