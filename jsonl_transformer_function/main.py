@@ -281,9 +281,28 @@ def transform_enrichment_results(entries: List[Dict[str, Any]]) -> List[Dict[str
             if not article:
                 continue
 
+            # Deep merge key_entities to ensure all required fields exist
+            raw_entities = article.get('key_entities', {})
+            key_entities = {
+                'teams': raw_entities.get('teams', []) if isinstance(raw_entities, dict) else [],
+                'players': raw_entities.get('players', []) if isinstance(raw_entities, dict) else [],
+                'amounts': raw_entities.get('amounts', []) if isinstance(raw_entities, dict) else [],
+                'dates': raw_entities.get('dates', []) if isinstance(raw_entities, dict) else [],
+                'competitions': raw_entities.get('competitions', []) if isinstance(raw_entities, dict) else [],
+                'locations': raw_entities.get('locations', []) if isinstance(raw_entities, dict) else []
+            }
+
+            # Preserve original metadata and merge with enrichment info
+            original_metadata = article.get('_processing_metadata', {})
+            processing_metadata = {
+                **original_metadata,  # Preserve original Stage 1 metadata
+                'enriched_at': datetime.now(timezone.utc).isoformat(),
+                'enrichment_processor': 'batch_enrichment'
+            }
+
             enriched_articles.append({
                 'article_id': article.get('article_id', ''),
-                'original_url': article.get('original_url', ''),
+                'original_url': article.get('original_url', article.get('url', '')),  # Fallback to url
                 'merged_from_urls': article.get('merged_from_urls', []),
                 'title': article.get('title', ''),
                 'summary': article.get('summary', ''),
@@ -292,21 +311,12 @@ def transform_enrichment_results(entries: List[Dict[str, Any]]) -> List[Dict[str
                 'source': article.get('source', ''),
                 'published_date': article.get('published_date', ''),
                 'categories': article.get('categories', []),
-                'key_entities': article.get('key_entities', {
-                    'teams': [],
-                    'players': [],
-                    'amounts': [],
-                    'dates': [],
-                    'competitions': [],
-                    'locations': []
-                }),
+                'key_entities': key_entities,
                 'content_quality': article.get('content_quality', 'medium'),
                 'confidence': article.get('confidence', 0.8),
                 'language': article.get('language', 'tr'),
-                '_processing_metadata': {
-                    'processed_at': datetime.now(timezone.utc).isoformat(),
-                    'processor': 'batch_enrichment'
-                }
+                '_processing_metadata': processing_metadata,
+                '_merge_metadata': article.get('_merge_metadata')  # Preserve merge metadata
             })
 
     logger.info(f"Transformed {len(enriched_articles)} enriched articles")
