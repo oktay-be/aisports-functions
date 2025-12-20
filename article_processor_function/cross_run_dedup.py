@@ -65,7 +65,7 @@ class CrossRunDeduplicator:
             List of GCS blob paths to embedding files
         """
         bucket = self.storage_client.bucket(self.bucket_name)
-        prefix = f"{date_str}/"
+        prefix = f"ingestion/{date_str}/"
 
         embedding_files = []
 
@@ -73,13 +73,13 @@ class CrossRunDeduplicator:
         blobs = bucket.list_blobs(prefix=prefix)
 
         for blob in blobs:
-            # Match pattern: {date}/{HH-MM-SS}/embeddings/*.json
+            # Match pattern: ingestion/{date}/{HH-MM-SS}/embeddings/*.json
             path = blob.name
             if "/embeddings/" in path and path.endswith("_embeddings.json"):
                 # Extract run_id from path
                 parts = path.split("/")
-                if len(parts) >= 3:
-                    run_id = parts[1]  # HH-MM-SS
+                if len(parts) >= 4:
+                    run_id = parts[2]  # HH-MM-SS (after ingestion/date/)
                     # Skip current run
                     if run_id != current_run_id:
                         embedding_files.append(path)

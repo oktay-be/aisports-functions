@@ -286,7 +286,7 @@ class ArticleProcessor:
         # Extract path info
         date_str, run_id, filename = extract_path_info(gcs_path)
         source_type = extract_source_type(filename)
-        run_folder = f"{date_str}/{run_id}"
+        run_folder = f"ingestion/{date_str}/{run_id}"
 
         logger.info(f"Processing: date={date_str}, run={run_id}, source={source_type}")
 

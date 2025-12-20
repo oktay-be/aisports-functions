@@ -329,7 +329,7 @@ class ArticleEnricher:
         """
         date_str, run_id, filename = extract_path_info(gcs_path)
         output_prefix = extract_output_prefix(filename)
-        run_folder = f"{date_str}/{run_id}"
+        run_folder = f"ingestion/{date_str}/{run_id}"
 
         logger.info(f"Processing: date={date_str}, run={run_id}, file={filename}")
 
