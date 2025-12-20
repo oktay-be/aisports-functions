@@ -1,13 +1,16 @@
 """
-Article Enricher Function - LLM Enrichment for Articles
+Article Enricher Function - Batch LLM Enrichment for Articles
 
 Final stage of the article processing pipeline.
-Generates summaries, X posts, translations, categories, and entities.
+Submits batch job to Vertex AI for enrichment (summaries, X posts, translations).
+Results are transformed by jsonl_transformer_function.
 
 Flow:
 1. Triggered by GCS file creation (singleton_*.json, decision_*.json)
-2. For each article, generate enrichment using LLM
-3. Output enriched_*.json files (consumed by UI)
+2. Creates JSONL batch request with all articles
+3. Submits batch job to Vertex AI
+4. Exits immediately (no polling)
+5. jsonl_transformer_function handles results when batch completes
 """
 
 import os
@@ -24,7 +27,7 @@ CET = ZoneInfo("Europe/Berlin")
 
 from google.cloud import storage
 from google import genai
-from google.genai.types import HttpOptions, GenerateContentConfig
+from google.genai.types import HttpOptions, CreateBatchJobConfig
 
 # Enhanced logging configuration
 logging.basicConfig(
@@ -35,7 +38,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
-logger.info("Article Enricher Function initialized")
+logger.info("Article Enricher Function initialized (BATCH MODE)")
 
 # Environment configuration
 ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
@@ -51,7 +54,6 @@ PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT', 'gen-lang-client-0306766464')
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME', 'aisports-scraping')
 VERTEX_AI_LOCATION = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
 VERTEX_AI_MODEL = os.getenv('VERTEX_AI_MODEL', 'gemini-2.0-flash')
-BATCH_SIZE = int(os.getenv('ENRICHMENT_BATCH_SIZE', '5'))
 
 # File patterns that trigger this function
 TRIGGER_PATTERNS = [
@@ -63,7 +65,7 @@ TRIGGER_PATTERNS = [
     'decision_scraped_articles.json',
 ]
 
-# Enrichment prompt
+# Enrichment prompt (used in batch request)
 ENRICHMENT_PROMPT = """You are a sports news editor enriching articles for a Turkish sports news aggregator.
 
 ## Task
@@ -98,59 +100,38 @@ For each article provided, generate:
 ## x_post Rules (CRITICAL)
 - ALWAYS in Turkish
 - Max 280 characters
-- Must contain ACTUAL information (names, scores, facts)
-- Include 1-2 relevant hashtags
-- NO CLICKBAIT: No "Iste detaylar...", "Bomba iddia!" without content
-
-**BAD:** "Fenerbahce'den flas transfer hamlesi! Iste detaylar... #Fenerbahce"
-**GOOD:** "Fenerbahce, Juventus'tan Dusan Vlahovic'i 45M Euro'ya kadrosuna katti. Sirbistanli golcu 4 yillik sozlesme imzaladi. #Fenerbahce #Transfer"
-
-## Input Format
-```json
-{
-  "articles": [
-    {
-      "article_id": "abc123",
-      "title": "Article title",
-      "body": "Article body text...",
-      "url": "https://...",
-      "source": "example.com",
-      "published_at": "2025-01-15T12:00:00Z"
-    }
-  ]
-}
-```
+- Include relevant hashtags: #FenerbahceSK, #Galatasaray, #Besiktas, #SuperLig etc.
+- Be informative, not clickbait
 
 ## Output Format
-Return JSON array with enriched articles:
+Return JSON with format:
 ```json
 {
-  "enriched_articles": [
-    {
-      "article_id": "abc123",
-      "summary": "Comprehensive summary in ORIGINAL language...",
-      "x_post": "Turkish tweet with facts and #hashtags",
-      "summary_translation": "Turkish translation if non-Turkish, else null",
-      "categories": [
-        {"tag": "match-results", "confidence": 0.95, "evidence": "Reports final score"}
-      ],
-      "key_entities": {
-        "teams": ["Galatasaray"],
-        "players": ["Osimhen"],
-        "amounts": [],
-        "dates": ["2025-01-15"],
-        "competitions": ["Super Lig"],
-        "locations": ["Istanbul"]
-      },
-      "confidence": 0.9,
-      "content_quality": "high",
-      "language": "turkish"
-    }
-  ]
+    "enriched_articles": [
+        {
+            "article_id": "original_id",
+            "title": "original_title",
+            "summary": "...",
+            "x_post": "Turkish X post with #hashtags",
+            "summary_translation": "Turkish translation or null",
+            "categories": [{"tag": "transfers-confirmed", "confidence": 0.9}],
+            "key_entities": {
+                "teams": ["Fenerbahce"],
+                "players": ["Player Name"],
+                "amounts": ["10M EUR"],
+                "dates": ["2025-01-15"],
+                "competitions": ["Super Lig"],
+                "locations": ["Istanbul"]
+            },
+            "confidence": 0.85,
+            "content_quality": "high",
+            "language": "turkish"
+        }
+    ]
 }
 ```
 
-## Articles to Enrich
+## Articles to Process:
 """
 
 
@@ -162,26 +143,35 @@ def extract_path_info(gcs_path: str) -> Tuple[str, str, str]:
     if match:
         return match.group(1), match.group(2), match.group(3)
 
-    # Fallback to current time (CET for run timestamps)
     now = datetime.now(CET)
     return now.strftime('%Y-%m-%d'), now.strftime('%H-%M-%S'), 'unknown.json'
 
 
 def extract_output_prefix(filename: str) -> str:
     """
-    Extract output prefix from input filename.
-
-    singleton_complete_articles.json -> enriched_singleton_complete_articles.json
-    decision_complete_articles.json -> enriched_decision_complete_articles.json
+    Extract output prefix from filename.
+    singleton_complete_articles.json -> enriched_singleton_complete_articles
+    decision_complete_articles.json -> enriched_decision_complete_articles
     """
-    # Remove .json extension and add enriched_ prefix
     base = filename.replace('.json', '')
     return f"enriched_{base}"
 
 
+def extract_source_type(filename: str) -> str:
+    """Extract source type for batch output path."""
+    if 'complete' in filename and 'incomplete' not in filename:
+        return 'complete'
+    elif 'scraped_incomplete' in filename:
+        return 'scraped_incomplete'
+    elif 'scraped' in filename:
+        return 'scraped'
+    return 'unknown'
+
+
 class ArticleEnricher:
     """
-    LLM-based article enrichment service.
+    Batch-based article enrichment service.
+    Submits batch jobs to Vertex AI and exits immediately.
     """
 
     def __init__(self):
@@ -190,20 +180,21 @@ class ArticleEnricher:
 
         if ENVIRONMENT != 'local':
             try:
-                if "gemini-3" in VERTEX_AI_MODEL.lower():
-                    location = "global"
-                else:
-                    location = VERTEX_AI_LOCATION
+                # Use regional endpoint for batch processing
+                regional_endpoint = f"https://{VERTEX_AI_LOCATION}-aiplatform.googleapis.com/"
 
-                http_options = HttpOptions(api_version="v1")
+                http_options = HttpOptions(
+                    api_version="v1",
+                    base_url=regional_endpoint
+                )
 
                 self.genai_client = genai.Client(
                     vertexai=True,
                     project=PROJECT_ID,
-                    location=location,
+                    location=VERTEX_AI_LOCATION,
                     http_options=http_options
                 )
-                logger.info(f"Vertex AI client initialized: model={VERTEX_AI_MODEL}")
+                logger.info(f"Vertex AI client initialized for batch: model={VERTEX_AI_MODEL}")
 
             except Exception as e:
                 logger.error(f"Failed to initialize Vertex AI: {e}")
@@ -220,106 +211,156 @@ class ArticleEnricher:
             logger.error(f"Error downloading {gcs_path}: {e}")
             return []
 
-    def enrich_batch(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def create_batch_request(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
-        Enrich a batch of articles using LLM.
+        Create batch request entries for all articles.
 
         Args:
             articles: List of articles to enrich
 
         Returns:
-            List of enriched articles
+            List of batch request entries (one per article batch)
         """
-        if not articles:
-            return []
+        batch_requests = []
 
-        # Prepare input - truncate body for LLM
-        llm_input = {
-            "articles": [
-                {
-                    "article_id": a.get('article_id', ''),
-                    "title": a.get('title', ''),
-                    "body": (a.get('body', '') or '')[:3000],  # Truncate
-                    "url": a.get('url', ''),
-                    "source": a.get('source', ''),
-                    "published_at": a.get('published_at', '')
+        # Group articles into batches of 10 for efficient processing
+        batch_size = 10
+
+        for i in range(0, len(articles), batch_size):
+            batch = articles[i:i + batch_size]
+
+            # Prepare input for this batch
+            llm_input = {
+                "articles": [
+                    {
+                        "article_id": a.get('article_id', ''),
+                        "title": a.get('title', ''),
+                        "body": (a.get('body', '') or '')[:3000],
+                        "url": a.get('url', ''),
+                        "source": a.get('source', ''),
+                        "published_at": a.get('published_at', '')
+                    }
+                    for a in batch
+                ]
+            }
+
+            prompt = ENRICHMENT_PROMPT + f"\n```json\n{json.dumps(llm_input, ensure_ascii=False, indent=2)}\n```"
+
+            # Create batch request entry
+            request_entry = {
+                "request": {
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": [{"text": prompt}]
+                        }
+                    ],
+                    "generationConfig": {
+                        "temperature": 0.2,
+                        "maxOutputTokens": 8192,
+                        "responseMimeType": "application/json"
+                    }
                 }
-                for a in articles
-            ]
-        }
+            }
 
-        prompt = ENRICHMENT_PROMPT + f"\n```json\n{json.dumps(llm_input, ensure_ascii=False, indent=2)}\n```"
+            batch_requests.append(request_entry)
+
+        return batch_requests
+
+    def upload_batch_request(self, requests: List[Dict], run_folder: str, source_type: str) -> str:
+        """
+        Upload batch request JSONL to GCS.
+
+        Args:
+            requests: List of batch request entries
+            run_folder: Run folder path
+            source_type: Source type (complete, scraped_incomplete, etc.)
+
+        Returns:
+            GCS URI of uploaded file
+        """
+        # Create JSONL content
+        jsonl_content = '\n'.join(json.dumps(r, ensure_ascii=False) for r in requests)
+
+        # Upload path
+        blob_path = f"{run_folder}/batch_enrichment/{source_type}/request.jsonl"
+
+        bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(blob_path)
+        blob.upload_from_string(jsonl_content, content_type='application/jsonl')
+
+        gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_path}"
+        logger.info(f"Uploaded batch request to {gcs_uri}")
+
+        return gcs_uri
+
+    def submit_batch_job(self, request_uri: str, run_folder: str, source_type: str) -> Tuple[str, str]:
+        """
+        Submit batch job to Vertex AI.
+
+        Args:
+            request_uri: GCS URI of batch request JSONL
+            run_folder: Run folder path
+            source_type: Source type for output path
+
+        Returns:
+            Tuple of (job_name, output_uri)
+        """
+        # Output path - jsonl_transformer will be triggered here
+        output_uri = f"gs://{GCS_BUCKET_NAME}/{run_folder}/batch_enrichment/{source_type}/"
 
         try:
-            response = self.genai_client.models.generate_content(
+            batch_config = CreateBatchJobConfig(dest=output_uri)
+
+            logger.info(f"Submitting batch job...")
+            logger.info(f"  Model: {VERTEX_AI_MODEL}")
+            logger.info(f"  Source: {request_uri}")
+            logger.info(f"  Output: {output_uri}")
+
+            job = self.genai_client.batches.create(
                 model=VERTEX_AI_MODEL,
-                contents=prompt,
-                config=GenerateContentConfig(
-                    temperature=0.2,
-                    max_output_tokens=8192,
-                    response_mime_type="application/json"
-                )
+                src=request_uri,
+                config=batch_config
             )
 
-            response_text = response.text.strip()
-            result = json.loads(response_text)
-            enriched = result.get('enriched_articles', [])
+            logger.info(f"Batch job submitted successfully!")
+            logger.info(f"  Job name: {job.name}")
+            logger.info(f"  Job state: {job.state}")
 
-            logger.info(f"Enriched {len(enriched)} articles")
-            return enriched
+            return job.name, output_uri
 
         except Exception as e:
-            logger.error(f"LLM enrichment error: {e}")
-            # Return empty enrichment on error
-            return []
+            logger.error(f"Error submitting batch job: {e}")
+            raise
 
-    def merge_enrichment(
-        self,
-        original: Dict[str, Any],
-        enriched: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Merge enrichment data into original article.
+    def save_batch_metadata(self, run_folder: str, source_type: str,
+                           job_name: str, output_uri: str,
+                           article_count: int) -> str:
+        """Save batch job metadata for tracking."""
+        metadata = {
+            "job_name": job_name,
+            "output_uri": output_uri,
+            "source_type": source_type,
+            "article_count": article_count,
+            "submitted_at": datetime.now(timezone.utc).isoformat(),
+            "status": "submitted"
+        }
 
-        Preserves original fields and adds enrichment.
-        """
-        result = original.copy()
-
-        # Add enrichment fields
-        result['summary'] = enriched.get('summary', '')
-        result['x_post'] = enriched.get('x_post', '')
-        result['summary_translation'] = enriched.get('summary_translation')
-        result['categories'] = enriched.get('categories', [])
-        result['key_entities'] = enriched.get('key_entities', {
-            'teams': [],
-            'players': [],
-            'amounts': [],
-            'dates': [],
-            'competitions': [],
-            'locations': []
-        })
-        result['confidence'] = enriched.get('confidence', 0.5)
-        result['content_quality'] = enriched.get('content_quality', 'medium')
-        result['language'] = enriched.get('language', 'turkish')
-        result['enriched_at'] = datetime.now(timezone.utc).isoformat()
-
-        return result
-
-    def save_json_to_gcs(self, data: Any, blob_path: str) -> str:
-        """Save JSON data to GCS."""
+        blob_path = f"{run_folder}/batch_enrichment/{source_type}/metadata.json"
         bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
         blob = bucket.blob(blob_path)
         blob.upload_from_string(
-            json.dumps(data, ensure_ascii=False, indent=2),
+            json.dumps(metadata, indent=2),
             content_type='application/json'
         )
-        gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_path}"
-        logger.info(f"Saved to {gcs_uri}")
-        return gcs_uri
+
+        logger.info(f"Saved batch metadata to {blob_path}")
+        return blob_path
 
     def process(self, gcs_path: str) -> Dict[str, Any]:
         """
         Main processing pipeline.
+        Creates batch request and submits job, then exits.
 
         Args:
             gcs_path: GCS path to input file
@@ -328,10 +369,10 @@ class ArticleEnricher:
             Processing metadata
         """
         date_str, run_id, filename = extract_path_info(gcs_path)
-        output_prefix = extract_output_prefix(filename)
+        source_type = extract_source_type(filename)
         run_folder = f"ingestion/{date_str}/{run_id}"
 
-        logger.info(f"Processing: date={date_str}, run={run_id}, file={filename}")
+        logger.info(f"Processing: date={date_str}, run={run_id}, source={source_type}")
 
         # Download articles
         articles = self.download_articles(gcs_path)
@@ -340,86 +381,40 @@ class ArticleEnricher:
             logger.warning("No articles found")
             return {"status": "empty", "articles": 0}
 
-        logger.info(f"Enriching {len(articles)} articles")
+        logger.info(f"Creating batch request for {len(articles)} articles")
 
-        # Create article lookup by ID
-        article_map = {a.get('article_id', ''): a for a in articles}
+        # Create batch request
+        batch_requests = self.create_batch_request(articles)
+        logger.info(f"Created {len(batch_requests)} batch request entries")
 
-        # Process in batches
-        all_enriched = []
+        # Upload batch request to GCS
+        request_uri = self.upload_batch_request(batch_requests, run_folder, source_type)
 
-        for i in range(0, len(articles), BATCH_SIZE):
-            batch = articles[i:i + BATCH_SIZE]
-            batch_num = i // BATCH_SIZE + 1
-            total_batches = (len(articles) + BATCH_SIZE - 1) // BATCH_SIZE
+        # Submit batch job
+        job_name, output_uri = self.submit_batch_job(request_uri, run_folder, source_type)
 
-            logger.info(f"Processing batch {batch_num}/{total_batches}")
+        # Save metadata
+        self.save_batch_metadata(run_folder, source_type, job_name, output_uri, len(articles))
 
-            enriched_batch = self.enrich_batch(batch)
-
-            # Merge enrichment with original articles
-            for enriched in enriched_batch:
-                article_id = enriched.get('article_id', '')
-                original = article_map.get(article_id)
-
-                if original:
-                    merged = self.merge_enrichment(original, enriched)
-                    all_enriched.append(merged)
-                else:
-                    logger.warning(f"No matching article for ID: {article_id}")
-
-        # Handle articles that weren't enriched (LLM errors)
-        enriched_ids = {a.get('article_id') for a in all_enriched}
-        for article in articles:
-            if article.get('article_id') not in enriched_ids:
-                # Add with minimal enrichment
-                article['summary'] = article.get('title', '')
-                article['x_post'] = ''
-                article['summary_translation'] = None
-                article['categories'] = []
-                article['key_entities'] = {
-                    'teams': [], 'players': [], 'amounts': [],
-                    'dates': [], 'competitions': [], 'locations': []
-                }
-                article['confidence'] = 0.3
-                article['content_quality'] = 'low'
-                article['language'] = 'unknown'
-                article['enrichment_error'] = True
-                article['enriched_at'] = datetime.now(timezone.utc).isoformat()
-                all_enriched.append(article)
-
-        # Save output
-        output_path = f"{run_folder}/{output_prefix}.json"
-        self.save_json_to_gcs({
-            'articles': all_enriched,
-            'count': len(all_enriched),
-            'source_file': gcs_path,
-            'created_at': datetime.now(timezone.utc).isoformat()
-        }, output_path)
-
-        metadata = {
-            "status": "success",
+        return {
+            "status": "batch_submitted",
             "date": date_str,
             "run_id": run_id,
+            "source_type": source_type,
             "input_file": gcs_path,
-            "input_articles": len(articles),
-            "enriched_articles": len(all_enriched),
-            "output_file": output_path,
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "article_count": len(articles),
+            "batch_requests": len(batch_requests),
+            "job_name": job_name,
+            "output_uri": output_uri
         }
-
-        logger.info(f"Complete: {len(all_enriched)} articles enriched")
-
-        return metadata
 
 
 def enrich_articles(event, context):
     """
     Cloud Function entry point.
-
     Triggered by GCS Eventarc on singleton_*.json or decision_*.json creation.
     """
-    logger.info("=== ARTICLE ENRICHER FUNCTION TRIGGERED ===")
+    logger.info("=== ARTICLE ENRICHER FUNCTION TRIGGERED (BATCH MODE) ===")
 
     if isinstance(event, dict):
         bucket = event.get('bucket', GCS_BUCKET_NAME)
@@ -443,7 +438,7 @@ def enrich_articles(event, context):
             return
 
         result = enricher.process(name)
-        logger.info(f"Result: {result.get('status')}")
+        logger.info(f"Result: {result}")
 
     except Exception as e:
         logger.error(f"Error: {e}", exc_info=True)
@@ -474,5 +469,5 @@ def main(request):
 
 if __name__ == "__main__":
     logger.info("Running in local mode")
-    test_path = "2025-01-15/12-00-00/singleton_complete_articles.json"
+    test_path = "ingestion/2025-01-15/12-00-00/singleton_complete_articles.json"
     logger.info(f"Test path: {test_path}")
