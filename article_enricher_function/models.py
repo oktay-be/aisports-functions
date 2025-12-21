@@ -14,6 +14,8 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "article_id": {"type": "string"},
+                    "original_url": {"type": "string"},
+                    "merged_from_urls": {"type": "array", "items": {"type": "string"}},
                     "title": {"type": "string"},
                     "summary": {"type": "string"},
                     "x_post": {"type": "string"},

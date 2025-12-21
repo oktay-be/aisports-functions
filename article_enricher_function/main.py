@@ -92,9 +92,9 @@ For each article provided, generate:
 
 ## IMPORTANT: Data Preservation
 You MUST preserve the following fields exactly as they appear in the input:
-- `article_id`
+- `article_id` (mapped from `url` in input)
 - `original_url` (mapped from `url` in input)
-- `merged_from_urls`
+- `merged_from_urls` (mapped from `url` in input)
 - `published_date` (mapped from `published_at` in input)
 - `source`
 - `language`
