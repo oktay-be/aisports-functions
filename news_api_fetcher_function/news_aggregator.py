@@ -265,16 +265,16 @@ class NewsAggregator:
         params = {
             "text": query,
             "language": ",".join(self.languages),
-            "earliest_publish_date": date_range["from"],
-            "latest_publish_date": date_range["to"],
+            "earliest-publish-date": date_range["from"],
+            "latest-publish-date": date_range["to"],
             "api-key": self.worldnewsapi_key,
             "number": self.max_results,
             "sort": "publish-time",
-            "sort_direction": "desc"
+            "sort-direction": "desc"
         }
         
         if self.domains:
-            params["source_domains"] = ",".join(self.domains)
+            params["news-sources"] = ",".join(self.domains)
             
         try:
             logger.info(f"Fetching from WorldNewsAPI with query: {query}")
