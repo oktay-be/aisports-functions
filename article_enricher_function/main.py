@@ -296,8 +296,9 @@ class ArticleEnricher:
                     "merged_from_urls": a.get('merged_from_urls', []),
                     "source": a.get('source', ''),
                     "publish_date": a.get('publish_date', ''),
-                    "language": a.get('language', 'en'),
-                    "region": a.get('region', 'eu')
+                    "language": a.get('language') or a.get('lang'),
+                    # Derive region from language: tr -> tr, everything else -> eu
+                    "region": a.get('region') or ('tr' if (a.get('language') or a.get('lang')) == 'tr' else 'eu')
                 }
                 for a in articles
             ]

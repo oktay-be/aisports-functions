@@ -206,6 +206,11 @@ class ArticleProcessor:
                 lang = article.get('language', '').lower().strip()
                 if lang in LANGUAGE_MAP:
                     article['language'] = LANGUAGE_MAP[lang]
+                
+                # Ensure region is set from language (tr -> tr, everything else -> eu)
+                if 'region' not in article or not article.get('region'):
+                    normalized_lang = article.get('language', 'en')
+                    article['region'] = 'tr' if normalized_lang == 'tr' else 'eu'
 
             logger.info(f"Downloaded {len(articles)} articles from {gcs_uri}")
             return articles
@@ -392,8 +397,12 @@ class ArticleProcessor:
             })
             normalized.setdefault('content_quality', 'medium')
             normalized.setdefault('confidence', 0.5)
-            normalized.setdefault('language', 'turkish')
+            normalized.setdefault('language', 'tr')
             normalized.setdefault('x_post', '')
+            # Derive region from language if not set: tr -> tr, everything else -> eu
+            if 'region' not in normalized or not normalized.get('region'):
+                lang = normalized.get('language', '')
+                normalized['region'] = 'tr' if lang == 'tr' else 'eu'
             # Preserve source_type from article or infer from extraction_method
             if 'source_type' not in normalized:
                 extraction_method = normalized.get('extraction_method', '')

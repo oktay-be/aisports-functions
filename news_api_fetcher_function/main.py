@@ -107,9 +107,10 @@ def transform_api_article_to_session_schema(article: dict) -> dict:
     # Generate article_id
     article_id = generate_article_id(url) if url else ""
 
-    # Get language and map to region
-    # tr -> tr region, everything else -> eu region
-    language = article.get('language', 'en')
+    # Get language - check both 'language' (WorldNewsAPI) and 'lang' (GNews)
+    language = article.get('language') or article.get('lang')
+    
+    # Map to region: tr -> tr, everything else -> eu
     region = 'tr' if language == 'tr' else 'eu'
 
     # Transform to session schema

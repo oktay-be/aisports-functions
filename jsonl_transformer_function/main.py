@@ -345,7 +345,8 @@ def transform_enrichment_results(entries: List[Dict[str, Any]],
                 'content_quality': article.get('content_quality', 'medium'),
                 'confidence': article.get('confidence', 0.8),
                 'language': lang,
-                'region': article.get('region', '') or original.get('region', 'eu'),
+                # Derive region from language: tr -> tr, everything else -> eu
+                'region': article.get('region', '') or original.get('region', '') or ('tr' if lang == 'tr' else 'eu'),
                 'source_type': article.get('source_type', '') or original.get('source_type', 'scraped'),
                 '_processing_metadata': processing_metadata,
                 '_merge_metadata': article.get('_merge_metadata', original.get('_merge_metadata'))
