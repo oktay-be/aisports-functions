@@ -264,10 +264,9 @@ class MergeDecider:
         """
         batch_requests = []
 
-        # Group into batches of 2 groups per request
-        # Reduced from 5 to prevent output truncation when groups have many articles
+        # Group into batches of 5 groups per request
         # Each group with N articles needs ~N*40 tokens for merged_article_ids + merged_from_urls
-        batch_size = 2
+        batch_size = 5
 
         for i in range(0, len(groups), batch_size):
             batch = groups[i:i + batch_size]
