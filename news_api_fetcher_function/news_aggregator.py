@@ -169,9 +169,10 @@ class NewsAggregator:
         else:  # Default to last 24 hours
             from_date = now - timedelta(days=1)
         
+        # Return date-only format (YYYY-MM-DD) for WorldNewsAPI compatibility
         return {
-            "from": from_date.isoformat(),
-            "to": now.isoformat()
+            "from": from_date.strftime("%Y-%m-%d"),
+            "to": now.strftime("%Y-%m-%d")
         }
     
     async def fetch_newsapi_articles(self) -> List[Dict]:
