@@ -202,10 +202,13 @@ class ArticleProcessor:
                 if 'original_url' not in article:
                     article['original_url'] = article.get('url', '')
 
-                # Normalize language
-                lang = article.get('language', '').lower().strip()
+                # Normalize language - check both 'language' and 'lang' (GNews uses 'lang')
+                raw_lang = article.get('language') or article.get('lang') or ''
+                lang = raw_lang.lower().strip() if isinstance(raw_lang, str) else ''
                 if lang in LANGUAGE_MAP:
                     article['language'] = LANGUAGE_MAP[lang]
+                elif lang:
+                    article['language'] = lang
                 
                 # Ensure region is set from language (tr -> tr, everything else -> eu)
                 if 'region' not in article or not article.get('region'):

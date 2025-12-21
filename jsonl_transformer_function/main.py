@@ -322,7 +322,8 @@ def transform_enrichment_results(entries: List[Dict[str, Any]],
 
             # Language/region sourced ONLY from original batch input (not from LLM output)
             # These are passthrough fields stored in input files for recovery
-            raw_lang = original.get('language') or ''
+            # Check both 'language' and 'lang' (GNews uses 'lang')
+            raw_lang = original.get('language') or original.get('lang') or ''
             lang = ''
             if isinstance(raw_lang, str) and raw_lang:
                 clean_lang = raw_lang.lower().strip()
