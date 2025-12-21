@@ -97,8 +97,6 @@ You MUST preserve the following fields exactly as they appear in the input:
 - `merged_from_urls` (mapped from `url` in input)
 - `publish_date` (from input)
 - `source`
-- `language`
-- `region`
 
 ## Category Taxonomy (STRICT)
 
@@ -148,15 +146,10 @@ Return JSON with format:
                 "locations": ["Istanbul"]
             },
             "confidence": 0.85,
-            "content_quality": "high",
-            "language": "en",
-            "region": "eu"
+            "content_quality": "high"
         }
     ]
 }
-```
-
-**IMPORTANT:** Preserve the exact `language` and `region` values from the input article. Do NOT change these fields.
 
 ## Input
 The articles to process are provided in the attached JSON file with this structure:
@@ -170,9 +163,7 @@ The articles to process are provided in the attached JSON file with this structu
             "url": "https://...",
             "merged_from_urls": ["https://..."],
             "source": "example.com",
-            "publish_date": "2025-01-15T10:00:00Z",
-            "language": "tr",
-            "region": "tr"
+            "publish_date": "2025-01-15T10:00:00Z"
         }
     ]
 }
@@ -285,7 +276,7 @@ class ArticleEnricher:
         Returns:
             GCS URI of uploaded file
         """
-        # Prepare input data - include language/region for preservation
+        # Prepare input data - language/region stored for recovery by jsonl_transformer (not sent to LLM)
         llm_input = {
             "articles": [
                 {
@@ -296,9 +287,10 @@ class ArticleEnricher:
                     "merged_from_urls": a.get('merged_from_urls', []),
                     "source": a.get('source', ''),
                     "publish_date": a.get('publish_date', ''),
-                    "language": a.get('language') or a.get('lang'),
-                    # Derive region from language: tr -> tr, everything else -> eu
-                    "region": a.get('region') or ('tr' if (a.get('language') or a.get('lang')) == 'tr' else 'eu')
+                    # language/region preserved in input file for recovery during transform
+                    # (not included in LLM prompt/schema - passthrough fields)
+                    "language": a.get('language') or a.get('lang') or '',
+                    "region": a.get('region') or ''
                 }
                 for a in articles
             ]

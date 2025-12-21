@@ -320,12 +320,16 @@ def transform_enrichment_results(entries: List[Dict[str, Any]],
                 'enrichment_processor': 'batch_enrichment'
             }
 
-            # Normalize language - prefer LLM output, then original, keep empty if truly unknown
-            raw_lang = article.get('language') or original.get('language') or ''
+            # Language/region sourced ONLY from original batch input (not from LLM output)
+            # These are passthrough fields stored in input files for recovery
+            raw_lang = original.get('language') or ''
             lang = ''
             if isinstance(raw_lang, str) and raw_lang:
                 clean_lang = raw_lang.lower().strip()
                 lang = LANGUAGE_MAP.get(clean_lang, clean_lang)
+            
+            # Derive region from language: tr -> tr, everything else -> eu
+            region = original.get('region') or ('tr' if lang == 'tr' else 'eu')
 
             # Use LLM output with fallback to original for fields LLM may not return
             enriched_articles.append({
@@ -344,9 +348,9 @@ def transform_enrichment_results(entries: List[Dict[str, Any]],
                 'key_entities': key_entities,
                 'content_quality': article.get('content_quality', 'medium'),
                 'confidence': article.get('confidence', 0.8),
+                # Language/region from original batch input only (passthrough fields)
                 'language': lang,
-                # Derive region from language: tr -> tr, everything else -> eu
-                'region': article.get('region', '') or original.get('region', '') or ('tr' if lang == 'tr' else 'eu'),
+                'region': region,
                 'source_type': article.get('source_type', '') or original.get('source_type', 'scraped'),
                 '_processing_metadata': processing_metadata,
                 '_merge_metadata': article.get('_merge_metadata', original.get('_merge_metadata'))

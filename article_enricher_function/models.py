@@ -43,9 +43,7 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                         }
                     },
                     "confidence": {"type": "number"},
-                    "content_quality": {"type": "string", "enum": ["high", "medium", "low"]},
-                    "language": {"type": "string"},
-                    "region": {"type": "string"}
+                    "content_quality": {"type": "string", "enum": ["high", "medium", "low"]}
                 },
                 "required": [
                     "article_id",
@@ -53,9 +51,7 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                     "x_post",
                     "categories",
                     "confidence",
-                    "content_quality",
-                    "language",
-                    "region"
+                    "content_quality"
                 ]
             }
         }
