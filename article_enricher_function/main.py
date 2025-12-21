@@ -288,7 +288,8 @@ class ArticleEnricher:
                     "url": a.get('original_url', a.get('url', '')),
                     "merged_from_urls": a.get('merged_from_urls', []),
                     "source": a.get('source', ''),
-                    "published_at": a.get('published_at', ''),
+                    # Use published_date with fallback to published_at for compatibility
+                    "published_at": a.get('published_date', '') or a.get('published_at', ''),
                     "language": a.get('language', 'en'),
                     "region": a.get('region', 'eu')
                 }

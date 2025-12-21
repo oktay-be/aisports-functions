@@ -263,17 +263,21 @@ def extract_response_content(entry: Dict[str, Any]) -> Dict[str, Any]:
         return {}
 
 
-def transform_enrichment_results(entries: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def transform_enrichment_results(entries: List[Dict[str, Any]], 
+                                  original_articles: Dict[str, Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """
     Transform enrichment batch results to UI-consumable format.
 
     Args:
         entries: List of JSONL entries from batch enrichment job
+        original_articles: Optional dict mapping article_id to original article data
+                          Used to recover fields (published_date, source) that LLM may not return
 
     Returns:
         List of enriched articles in ProcessedArticle format
     """
     enriched_articles = []
+    original_articles = original_articles or {}
 
     for entry in entries:
         content = extract_response_content(entry)
@@ -293,6 +297,10 @@ def transform_enrichment_results(entries: List[Dict[str, Any]]) -> List[Dict[str
             if not article:
                 continue
 
+            # Get original article data for fallback values
+            article_id = article.get('article_id', '')
+            original = original_articles.get(article_id, {})
+
             # Deep merge key_entities to ensure all required fields exist
             raw_entities = article.get('key_entities', {})
             key_entities = {
@@ -305,7 +313,7 @@ def transform_enrichment_results(entries: List[Dict[str, Any]]) -> List[Dict[str
             }
 
             # Preserve original metadata and merge with enrichment info
-            original_metadata = article.get('_processing_metadata', {})
+            original_metadata = article.get('_processing_metadata', original.get('_processing_metadata', {}))
             processing_metadata = {
                 **original_metadata,  # Preserve original Stage 1 metadata
                 'enriched_at': datetime.now(timezone.utc).isoformat(),
@@ -313,31 +321,33 @@ def transform_enrichment_results(entries: List[Dict[str, Any]]) -> List[Dict[str
             }
 
             # Normalize language
-            raw_lang = article.get('language', 'tr')
+            raw_lang = article.get('language', original.get('language', 'tr'))
             lang = 'tr'
             if isinstance(raw_lang, str):
                 clean_lang = raw_lang.lower().strip()
                 lang = LANGUAGE_MAP.get(clean_lang, clean_lang)
 
+            # Use LLM output with fallback to original for fields LLM may not return
             enriched_articles.append({
-                'article_id': article.get('article_id', ''),
-                'original_url': article.get('original_url', article.get('url', '')),  # Fallback to url
-                'merged_from_urls': article.get('merged_from_urls', []),
-                'title': article.get('title', ''),
+                'article_id': article_id,
+                'original_url': article.get('original_url', article.get('url', '')) or original.get('original_url', ''),
+                'merged_from_urls': article.get('merged_from_urls', []) or original.get('merged_from_urls', []),
+                'title': article.get('title', '') or original.get('title', ''),
                 'summary': article.get('summary', ''),
                 'summary_translation': article.get('summary_translation'),
                 'x_post': article.get('x_post'),
-                'source': article.get('source', ''),
-                'published_date': article.get('published_date', ''),
+                # CRITICAL: Fallback to original for fields LLM doesn't return
+                'source': article.get('source', '') or original.get('source', ''),
+                'published_date': article.get('published_date', '') or original.get('published_date', ''),
                 'categories': article.get('categories', []),
                 'key_entities': key_entities,
                 'content_quality': article.get('content_quality', 'medium'),
                 'confidence': article.get('confidence', 0.8),
                 'language': lang,
-                'region': article.get('region', 'eu'),
-                'source_type': article.get('source_type', 'scraped'),  # Preserve source_type, default to 'scraped'
+                'region': article.get('region', '') or original.get('region', 'eu'),
+                'source_type': article.get('source_type', '') or original.get('source_type', 'scraped'),
                 '_processing_metadata': processing_metadata,
-                '_merge_metadata': article.get('_merge_metadata')  # Preserve merge metadata
+                '_merge_metadata': article.get('_merge_metadata', original.get('_merge_metadata'))
             })
 
     logger.info(f"Transformed {len(enriched_articles)} enriched articles")
@@ -418,6 +428,37 @@ def load_singletons(run_folder: str, source_type: str) -> List[Dict[str, Any]]:
     except Exception as e:
         logger.warning(f"Could not load singletons: {e}")
         return []
+
+
+def load_decision_articles(run_folder: str, source_type: str) -> Dict[str, Dict[str, Any]]:
+    """
+    Load decision articles to get original metadata (published_date, source, etc.)
+    that LLM enrichment may not return.
+
+    Returns:
+        Dict mapping article_id to original article data
+    """
+    try:
+        decision_path = f"{run_folder}/decision_{source_type}_articles.json"
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(decision_path)
+
+        if not blob.exists():
+            logger.info(f"No decision file found at {decision_path}")
+            return {}
+
+        content = blob.download_as_text()
+        data = json.loads(content)
+        articles = data.get('articles', [])
+
+        # Create lookup map by article_id
+        article_map = {a.get('article_id', ''): a for a in articles if a.get('article_id')}
+        logger.info(f"Loaded {len(article_map)} decision articles for metadata merge")
+        return article_map
+
+    except Exception as e:
+        logger.warning(f"Could not load decision articles: {e}")
+        return {}
 
 
 def load_groups_data(run_folder: str, source_type: str) -> Dict[str, Any]:
@@ -608,7 +649,10 @@ def process_batch_output(gcs_path: str) -> Dict[str, Any]:
 
     # Transform based on job type
     if job_type == 'batch_enrichment':
-        articles = transform_enrichment_results(entries)
+        # Load original decision articles to recover fields LLM may not return
+        original_articles = load_decision_articles(run_folder, source_type)
+        
+        articles = transform_enrichment_results(entries, original_articles)
 
         # Deduplicate articles by article_id (in case of overlapping batches)
         articles = deduplicate_articles(articles)
