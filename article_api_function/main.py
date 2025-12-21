@@ -120,14 +120,22 @@ def get_today_date() -> str:
     return datetime.now().strftime('%Y-%m-%d')
 
 
-def normalize_article(article: Dict[str, Any]) -> Dict[str, Any]:
+def normalize_article(article: Dict[str, Any], content_map: Dict[str, str] = None) -> Dict[str, Any]:
     """Normalize article to consistent schema."""
+    article_id = article.get('article_id')
+    
+    # Get content from content_map if available
+    content = article.get('body') or article.get('content') or ''
+    if content_map and article_id and article_id in content_map:
+        content = content_map[article_id]
+    
     return {
-        'article_id': article.get('article_id'),
+        'article_id': article_id,
         'original_url': article.get('original_url'),
         'merged_from_urls': article.get('merged_from_urls'),
         'title': article.get('title'),
         'summary': article.get('summary'),
+        'content': content,  # Full article body
         'source': article.get('source'),
         'published_date': article.get('published_date'),
         'categories': article.get('categories', []),
@@ -152,6 +160,49 @@ def normalize_article(article: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def load_content_map(date: str) -> Dict[str, str]:
+    """
+    Load article content (body) from singleton and decision files.
+    Returns a map of article_id -> body content.
+    """
+    content_map = {}
+    prefix = f"ingestion/{date}/"
+    
+    try:
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+        blobs = list(bucket.list_blobs(prefix=prefix))
+        
+        # Filter for singleton and decision files (which have body content)
+        content_files = [
+            b for b in blobs
+            if (b.name.startswith(f"{prefix}singleton_") or b.name.startswith(f"{prefix}decision_"))
+            and b.name.endswith('_articles.json')
+            and 'batch_' not in b.name  # Exclude batch subfolder files
+        ]
+        
+        for blob in content_files:
+            try:
+                data = json.loads(blob.download_as_text())
+                articles = data.get('articles', [])
+                
+                for article in articles:
+                    article_id = article.get('article_id')
+                    body = article.get('body') or article.get('content') or ''
+                    if article_id and body:
+                        content_map[article_id] = body
+                
+                logger.info(f"  Content from {blob.name}: {len(articles)} articles")
+                
+            except Exception as e:
+                logger.error(f"  Error loading content from {blob.name}: {e}")
+                
+    except Exception as e:
+        logger.error(f"Error loading content map for {date}: {e}")
+    
+    logger.info(f"Loaded content for {len(content_map)} articles from {date}")
+    return content_map
+
+
 def fetch_articles_for_date(date: str) -> List[Dict[str, Any]]:
     """Fetch enriched articles from GCS for a specific date."""
     articles = []
@@ -162,6 +213,9 @@ def fetch_articles_for_date(date: str) -> List[Dict[str, Any]]:
     try:
         bucket = storage_client.bucket(GCS_BUCKET_NAME)
         blobs = list(bucket.list_blobs(prefix=prefix))
+
+        # First, load content map from singleton/decision files
+        content_map = load_content_map(date)
 
         # Filter for enriched article files
         enriched_files = [
@@ -187,9 +241,12 @@ def fetch_articles_for_date(date: str) -> List[Dict[str, Any]]:
                         article_list = data['articles']
 
                 for article in article_list:
-                    articles.append(normalize_article(article))
+                    articles.append(normalize_article(article, content_map))
 
                 logger.info(f"  {blob.name}: {len(article_list)} articles")
+
+            except Exception as e:
+                logger.error(f"  Error processing {blob.name}: {e}")
 
             except Exception as e:
                 logger.error(f"  Error processing {blob.name}: {e}")
@@ -269,6 +326,7 @@ def main(request: Request):
     end_date = request.args.get('endDate')
     last_n_days = request.args.get('last_n_days', type=int)
     search = request.args.get('search', '')
+    no_cache = request.args.get('no_cache', 'false').lower() == 'true'
 
     # Determine dates to fetch
     if start_date and end_date:
@@ -291,11 +349,15 @@ def main(request: Request):
     for date in dates_to_fetch:
         # Check cache first
         cached = get_cached_articles(region, date)
-        if cached is not None:
+        if cached is not None and not no_cache:
             logger.info(f"Cache HIT for {date} ({len(cached)} articles)")
             all_articles.extend(cached)
         else:
-            logger.info(f"Cache MISS for {date} - fetching from GCS")
+            if no_cache:
+                logger.info(f"Cache BYPASS for {date}")
+            else:
+                logger.info(f"Cache MISS for {date} - fetching from GCS")
+            
             date_articles = fetch_articles_for_date(date)
 
             # Cache the results

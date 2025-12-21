@@ -4,14 +4,15 @@ import argparse
 import subprocess
 from pathlib import Path
 
-def download_run(gcs_path, local_base_path):
+def download_run(gcs_path, local_base_path, skip_existing=False):
     """
-    Downloads a GCS folder to a local directory using gsutil.
+    Downloads a GCS folder to a local directory using gcloud storage (faster than gsutil).
     
     Args:
         gcs_path: Full GCS path (e.g., aisports-scraping/ingestion/2025-12-20/15-24-07)
                   or gs:// URI
         local_base_path: Local directory to download to
+        skip_existing: Skip files that already exist locally
     """
     
     # Parse GCS path
@@ -31,10 +32,19 @@ def download_run(gcs_path, local_base_path):
     print(f"Downloading from {gcs_path}")
     print(f"To local: {local_run_dir}")
     
-    # Use gsutil -m cp -r
-    # -m for multi-threaded/multi-processing (faster)
+    # Use gcloud storage cp (faster than gsutil)
     # -r for recursive
-    command = ["gsutil", "-m", "cp", "-r", f"{gcs_path}/*", local_run_dir]
+    # --no-clobber to skip existing files (optional)
+    command = [
+        "gcloud", "storage", "cp",
+        "-r",
+        f"{gcs_path}/*",
+        local_run_dir
+    ]
+    
+    if skip_existing:
+        command.insert(4, "--no-clobber")
+        print("Skipping existing files...")
     
     try:
         subprocess.check_call(command)
@@ -46,8 +56,9 @@ def download_run(gcs_path, local_base_path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Download GCS run folder.')
     parser.add_argument('gcs_path', help='GCS path (e.g., aisports-scraping/ingestion/2025-12-20/15-24-07)')
-    parser.add_argument('--local_dir', default='/home/neo/aisports', help='Local base directory')
+    parser.add_argument('--local_dir', default='/home/neo/aisports/pipeline_runs', help='Local base directory')
+    parser.add_argument('--skip-existing', '-s', action='store_true', help='Skip files that already exist')
     
     args = parser.parse_args()
     
-    download_run(args.gcs_path, args.local_dir)
+    download_run(args.gcs_path, args.local_dir, args.skip_existing)
