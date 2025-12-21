@@ -333,6 +333,7 @@ def transform_enrichment_results(entries: List[Dict[str, Any]],
                 'original_url': article.get('original_url', article.get('url', '')) or original.get('original_url', ''),
                 'merged_from_urls': article.get('merged_from_urls', []) or original.get('merged_from_urls', []),
                 'title': article.get('title', '') or original.get('title', ''),
+                'body': original.get('body', ''),  # Full article content from original
                 'summary': article.get('summary', ''),
                 'summary_translation': article.get('summary_translation'),
                 'x_post': article.get('x_post'),
@@ -430,35 +431,54 @@ def load_singletons(run_folder: str, source_type: str) -> List[Dict[str, Any]]:
         return []
 
 
-def load_decision_articles(run_folder: str, source_type: str) -> Dict[str, Dict[str, Any]]:
+def load_original_articles(run_folder: str, source_type: str) -> Dict[str, Dict[str, Any]]:
     """
-    Load decision articles to get original metadata (published_date, source, etc.)
-    that LLM enrichment may not return.
+    Load original articles from singleton and decision files to get body content
+    and metadata (published_date, source, etc.) that LLM enrichment may not return.
+
+    File patterns loaded:
+    - singleton_{source_type}_articles.json
+    - decision_{source_type}_articles.json
 
     Returns:
-        Dict mapping article_id to original article data
+        Dict mapping article_id to original article data (with body)
     """
-    try:
-        decision_path = f"{run_folder}/decision_{source_type}_articles.json"
-        bucket = storage_client.bucket(GCS_BUCKET_NAME)
-        blob = bucket.blob(decision_path)
+    article_map = {}
+    bucket = storage_client.bucket(GCS_BUCKET_NAME)
 
-        if not blob.exists():
-            logger.info(f"No decision file found at {decision_path}")
-            return {}
+    # File patterns to load
+    file_patterns = [
+        f"{run_folder}/singleton_{source_type}_articles.json",
+        f"{run_folder}/decision_{source_type}_articles.json"
+    ]
 
-        content = blob.download_as_text()
-        data = json.loads(content)
-        articles = data.get('articles', [])
+    for file_path in file_patterns:
+        try:
+            blob = bucket.blob(file_path)
 
-        # Create lookup map by article_id
-        article_map = {a.get('article_id', ''): a for a in articles if a.get('article_id')}
-        logger.info(f"Loaded {len(article_map)} decision articles for metadata merge")
-        return article_map
+            if not blob.exists():
+                logger.info(f"File not found: {file_path}")
+                continue
 
-    except Exception as e:
-        logger.warning(f"Could not load decision articles: {e}")
-        return {}
+            content = blob.download_as_text()
+            data = json.loads(content)
+
+            # Both singleton and decision files have 'articles' array
+            articles = data.get('articles', [])
+
+            # Add to map by article_id
+            for article in articles:
+                aid = article.get('article_id', '')
+                if aid and article.get('body'):  # Only include if has body
+                    article_map[aid] = article
+
+            logger.info(f"Loaded {len(articles)} articles from {file_path}")
+
+        except Exception as e:
+            logger.warning(f"Could not load {file_path}: {e}")
+
+    logger.info(f"Total {len(article_map)} articles with body loaded for metadata merge")
+    return article_map
 
 
 def load_groups_data(run_folder: str, source_type: str) -> Dict[str, Any]:
@@ -649,8 +669,8 @@ def process_batch_output(gcs_path: str) -> Dict[str, Any]:
 
     # Transform based on job type
     if job_type == 'batch_enrichment':
-        # Load original decision articles to recover fields LLM may not return
-        original_articles = load_decision_articles(run_folder, source_type)
+        # Load original articles from singleton/grouped files to get body and metadata
+        original_articles = load_original_articles(run_folder, source_type)
         
         articles = transform_enrichment_results(entries, original_articles)
 
