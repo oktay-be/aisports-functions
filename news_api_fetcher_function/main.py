@@ -119,7 +119,7 @@ def transform_api_article_to_session_schema(article: dict) -> dict:
         "keywords_used": article.get('keywords_matched', []),
         "title": article.get('title', ''),
         "body": article.get('content', ''),  # Rename content -> body
-        "published_at": article.get('published_date', ''),
+        "publish_date": article.get('publish_date', ''),
         "source": domain,
         "extraction_method": f"api:{article.get('api_source', 'unknown')}",
         "source_type": "api",  # Standardized source type for UI filtering

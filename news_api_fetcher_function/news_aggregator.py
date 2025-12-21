@@ -224,8 +224,7 @@ class NewsAggregator:
                 "url": article.get("url"),
                 "original_url": article.get("url"),
                 "source": article.get("source", {}).get("name", "NewsAPI"),
-                "published_at": article.get("publishedAt"),
-                "published_date": article.get("publishedAt"),
+                "publish_date": article.get("publishedAt"),
                 "summary": article.get("description", ""),
                 "content": article.get("content") or article.get("description", ""),
                 "image_url": article.get("urlToImage"),
@@ -299,8 +298,7 @@ class NewsAggregator:
                 "url": article.get("url"),
                 "original_url": article.get("url"),
                 "source": article.get("source_name") or self._extract_domain(article.get("url", "")),
-                "published_at": article.get("publish_date"),
-                "published_date": article.get("publish_date"),
+                "publish_date": article.get("publish_date", "").replace(" ", "T") if article.get("publish_date") else "",
                 "summary": article.get("summary") or article.get("text", "")[:500] if article.get("text") else "",
                 "content": article.get("text", article.get("summary", "")),
                 "image_url": article.get("image"),
@@ -372,8 +370,7 @@ class NewsAggregator:
                 "url": article.get("url"),
                 "original_url": article.get("url"),
                 "source": article.get("source", {}).get("name", "GNews") if isinstance(article.get("source"), dict) else "GNews",
-                "published_at": article.get("publishedAt"),
-                "published_date": article.get("publishedAt"),
+                "publish_date": article.get("publishedAt"),
                 "summary": article.get("description", ""),
                 "content": article.get("content") or article.get("description", ""),
                 "image_url": article.get("image"),
@@ -467,7 +464,7 @@ class NewsAggregator:
         logger.info(f"Deduplicated {len(articles)} -> {len(unique_articles)} unique articles")
         return unique_articles
     
-    def sort_articles(self, articles: List[Dict], sort_by: str = "published_at", reverse: bool = True) -> List[Dict]:
+    def sort_articles(self, articles: List[Dict], sort_by: str = "publish_date", reverse: bool = True) -> List[Dict]:
         """Sort articles by the specified field."""
         return sorted(
             articles,

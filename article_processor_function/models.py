@@ -20,7 +20,7 @@ class RawArticle(BaseModel):
     title: str
     body: str = ""
     source: str = ""
-    published_at: Optional[str] = None
+    publish_date: Optional[str] = None
     keywords_used: List[str] = Field(default_factory=list)
     language: str = "en"
     region: str = "eu"  # 'tr' or 'eu' - mapped from language
@@ -73,7 +73,7 @@ class ProcessedArticle(BaseModel):
     key_entities: KeyEntities = Field(default_factory=KeyEntities)
     categories: List[CategoryAssignment] = Field(default_factory=list)
     source: str
-    published_date: str
+    publish_date: str
     content_quality: str = "medium"  # "high", "medium", "low"
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)  # Overall article confidence
     language: str = "turkish"
@@ -198,7 +198,7 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                         "type": "STRING",
                         "description": "Source domain"
                     },
-                    "published_date": {
+                    "publish_date": {
                         "type": "STRING",
                         "description": "ISO timestamp"
                     },
@@ -235,7 +235,7 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                     "summary",
                     "categories",
                     "source",
-                    "published_date",
+                    "publish_date",
                     "content_quality",
                     "confidence",
                     "language",

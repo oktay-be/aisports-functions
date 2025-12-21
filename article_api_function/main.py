@@ -137,7 +137,7 @@ def normalize_article(article: Dict[str, Any], content_map: Dict[str, str] = Non
         'summary': article.get('summary'),
         'content': content,  # Full article body
         'source': article.get('source'),
-        'published_date': article.get('published_date'),
+        'publish_date': article.get('publish_date'),
         'categories': article.get('categories', []),
         'key_entities': article.get('key_entities', {
             'teams': [],

@@ -43,7 +43,7 @@ Articles are provided as JSON with the following structure:
       "title": "Article Title",
       "content": "Full article content...",
       "source": "source-name",
-      "published_date": "2025-12-21",
+      "publish_date": "2025-12-21",
       "original_url": "https://...",
       "merged_from_urls": ["https://...", "https://..."]
     }
@@ -65,7 +65,7 @@ Each enriched article contains:
   "summary_translation": "Turkish translation (if original is not Turkish)",
   "x_post": "Twitter/X post with hashtags (max 280 chars)",
   "source": "source-name",
-  "published_date": "2025-12-21",
+  "publish_date": "2025-12-21",
   "categories": [
     {"tag": "match-report", "confidence": 0.95},
     {"tag": "super-lig", "confidence": 0.90}

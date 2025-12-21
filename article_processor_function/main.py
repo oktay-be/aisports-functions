@@ -381,8 +381,7 @@ class ArticleProcessor:
             # Field name normalization (raw -> ProcessedArticle)
             if 'url' in normalized and 'original_url' not in normalized:
                 normalized['original_url'] = normalized.pop('url')
-            if 'published_at' in normalized and 'published_date' not in normalized:
-                normalized['published_date'] = normalized.pop('published_at')
+            # publish_date is now the standard field name
             # Ensure required fields have defaults
             normalized.setdefault('merged_from_urls', [])
             normalized.setdefault('summary', '')

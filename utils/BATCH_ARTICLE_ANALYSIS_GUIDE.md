@@ -30,7 +30,7 @@ Location: `batch_enrichment/{source_type}/{branch_type}/input/batch_*.json`
             "url": "https://...",
             "merged_from_urls": ["https://..."],
             "source": "example.com",
-            "published_at": "2025-01-15T10:00:00Z",
+            "publish_date": "2025-01-15T10:00:00Z",
             "language": "tr",
             "region": "tr"
         }

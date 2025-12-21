@@ -8,7 +8,7 @@ import hashlib
 from typing import Optional
 
 
-def generate_article_id(url: str, published_date: Optional[str] = None) -> str:
+def generate_article_id(url: str) -> str:
     """
     Generate a deterministic unique ID for an article based on its URL.
     
@@ -17,8 +17,6 @@ def generate_article_id(url: str, published_date: Optional[str] = None) -> str:
     
     Args:
         url: The article's URL (primary identifier)
-        published_date: Optional published date for additional uniqueness
-                       (not currently used to maintain URL-based consistency)
     
     Returns:
         A 16-character hexadecimal string (e.g., "a1b2c3d4e5f6g7h8")

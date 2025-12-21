@@ -95,7 +95,7 @@ You MUST preserve the following fields exactly as they appear in the input:
 - `article_id` (mapped from `url` in input)
 - `original_url` (mapped from `url` in input)
 - `merged_from_urls` (mapped from `url` in input)
-- `published_date` (mapped from `published_at` in input)
+- `publish_date` (from input)
 - `source`
 - `language`
 - `region`
@@ -170,7 +170,7 @@ The articles to process are provided in the attached JSON file with this structu
             "url": "https://...",
             "merged_from_urls": ["https://..."],
             "source": "example.com",
-            "published_at": "2025-01-15T10:00:00Z",
+            "publish_date": "2025-01-15T10:00:00Z",
             "language": "tr",
             "region": "tr"
         }
@@ -295,8 +295,7 @@ class ArticleEnricher:
                     "url": a.get('original_url', a.get('url', '')),
                     "merged_from_urls": a.get('merged_from_urls', []),
                     "source": a.get('source', ''),
-                    # Use published_date with fallback to published_at for compatibility
-                    "published_at": a.get('published_date', '') or a.get('published_at', ''),
+                    "publish_date": a.get('publish_date', ''),
                     "language": a.get('language', 'en'),
                     "region": a.get('region', 'eu')
                 }

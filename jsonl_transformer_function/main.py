@@ -271,7 +271,7 @@ def transform_enrichment_results(entries: List[Dict[str, Any]],
     Args:
         entries: List of JSONL entries from batch enrichment job
         original_articles: Optional dict mapping article_id to original article data
-                          Used to recover fields (published_date, source) that LLM may not return
+                          Used to recover fields (publish_date, source) that LLM may not return
 
     Returns:
         List of enriched articles in ProcessedArticle format
@@ -339,7 +339,7 @@ def transform_enrichment_results(entries: List[Dict[str, Any]],
                 'x_post': article.get('x_post'),
                 # CRITICAL: Fallback to original for fields LLM doesn't return
                 'source': article.get('source', '') or original.get('source', ''),
-                'published_date': article.get('published_date', '') or original.get('published_date', ''),
+                'publish_date': article.get('publish_date', '') or original.get('publish_date', ''),
                 'categories': article.get('categories', []),
                 'key_entities': key_entities,
                 'content_quality': article.get('content_quality', 'medium'),
@@ -434,7 +434,7 @@ def load_singletons(run_folder: str, source_type: str) -> List[Dict[str, Any]]:
 def load_original_articles(run_folder: str, source_type: str) -> Dict[str, Dict[str, Any]]:
     """
     Load original articles from batch input files to get body content
-    and metadata (published_date, source, etc.) that LLM enrichment may not return.
+    and metadata (publish_date, source, etc.) that LLM enrichment may not return.
 
     These batch input files are the most reliable source as they contain
     the exact articles sent to the LLM for enrichment.
