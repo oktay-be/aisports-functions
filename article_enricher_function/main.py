@@ -158,7 +158,27 @@ Return JSON with format:
 
 **IMPORTANT:** Preserve the exact `language` and `region` values from the input article. Do NOT change these fields.
 
-## Articles to Process:
+## Input
+The articles to process are provided in the attached JSON file with this structure:
+```json
+{
+    "articles": [
+        {
+            "article_id": "unique_id",
+            "title": "Article title",
+            "body": "Full article body...",
+            "url": "https://...",
+            "merged_from_urls": ["https://..."],
+            "source": "example.com",
+            "published_at": "2025-01-15T10:00:00Z",
+            "language": "tr",
+            "region": "tr"
+        }
+    ]
+}
+```
+
+Process ALL articles in the attached file and return enriched versions.
 """
 
 
@@ -192,6 +212,20 @@ def extract_source_type(filename: str) -> str:
         return 'scraped_incomplete'
     elif 'scraped' in filename:
         return 'scraped'
+    return 'unknown'
+
+
+def extract_branch_type(filename: str) -> str:
+    """
+    Extract branch type from filename to prevent path collisions.
+    
+    singleton_complete_articles.json -> 'singleton'
+    decision_complete_articles.json -> 'merged'
+    """
+    if filename.startswith('singleton_'):
+        return 'singleton'
+    elif filename.startswith('decision_'):
+        return 'merged'
     return 'unknown'
 
 
@@ -229,12 +263,65 @@ class ArticleEnricher:
             logger.error(f"Error downloading {gcs_path}: {e}")
             return []
 
-    def create_batch_request(self, articles: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def upload_batch_input(self, articles: List[Dict[str, Any]], run_folder: str, 
+                            source_type: str, branch_type: str, batch_index: int) -> str:
         """
-        Create batch request entries for all articles.
+        Upload a batch of articles to GCS for fileData reference.
+        
+        Args:
+            articles: List of articles for this batch
+            run_folder: Run folder path
+            source_type: Source type (complete, scraped, etc.)
+            branch_type: Branch type (singleton or merged) to prevent path collisions
+            batch_index: Index of this batch
+            
+        Returns:
+            GCS URI of uploaded file
+        """
+        # Prepare input data - include language/region for preservation
+        llm_input = {
+            "articles": [
+                {
+                    "article_id": a.get('article_id', ''),
+                    "title": a.get('title', ''),
+                    "body": (a.get('body', '') or '')[:3000],
+                    "url": a.get('original_url', a.get('url', '')),
+                    "merged_from_urls": a.get('merged_from_urls', []),
+                    "source": a.get('source', ''),
+                    "published_at": a.get('published_at', ''),
+                    "language": a.get('language', 'en'),
+                    "region": a.get('region', 'eu')
+                }
+                for a in articles
+            ]
+        }
+        
+        # Upload path: stage input folder (include branch_type to prevent collisions)
+        blob_path = f"{run_folder}/batch_enrichment/{source_type}/{branch_type}/input/batch_{batch_index}.json"
+        
+        bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(blob_path)
+        blob.upload_from_string(
+            json.dumps(llm_input, ensure_ascii=False, indent=2),
+            content_type='application/json'
+        )
+        
+        gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_path}"
+        logger.info(f"Uploaded batch {batch_index} input to {gcs_uri} ({len(articles)} articles)")
+        
+        return gcs_uri
+
+    def create_batch_request(self, articles: List[Dict[str, Any]], 
+                              run_folder: str, source_type: str, branch_type: str) -> List[Dict[str, Any]]:
+        """
+        Create batch request entries for all articles using fileData pattern.
+        Uploads article batches to GCS and references them via fileData.
 
         Args:
             articles: List of articles to enrich
+            run_folder: Run folder path for staging files
+            source_type: Source type for organizing staged files
+            branch_type: Branch type (singleton or merged) to prevent path collisions
 
         Returns:
             List of batch request entries (one per article batch)
@@ -246,38 +333,32 @@ class ArticleEnricher:
 
         for i in range(0, len(articles), batch_size):
             batch = articles[i:i + batch_size]
+            batch_index = i // batch_size
 
-            # Prepare input for this batch - include language/region for preservation
-            llm_input = {
-                "articles": [
-                    {
-                        "article_id": a.get('article_id', ''),
-                        "title": a.get('title', ''),
-                        "body": (a.get('body', '') or '')[:3000],
-                        "url": a.get('original_url', a.get('url', '')),
-                        "merged_from_urls": a.get('merged_from_urls', []),
-                        "source": a.get('source', ''),
-                        "published_at": a.get('published_at', ''),
-                        "language": a.get('language', 'en'),
-                        "region": a.get('region', 'eu')
-                    }
-                    for a in batch
-                ]
-            }
+            # Upload batch input to GCS
+            batch_gcs_uri = self.upload_batch_input(batch, run_folder, source_type, branch_type, batch_index)
 
-            prompt = ENRICHMENT_PROMPT + f"\n```json\n{json.dumps(llm_input, ensure_ascii=False, indent=2)}\n```"
-
-            # Create batch request entry
+            # Create batch request entry with fileData reference (like result_merger_function)
             request_entry = {
                 "request": {
                     "contents": [
                         {
                             "role": "user",
-                            "parts": [{"text": prompt}]
+                            "parts": [
+                                {"text": ENRICHMENT_PROMPT},
+                                {
+                                    "fileData": {
+                                        "fileUri": batch_gcs_uri,
+                                        "mimeType": "text/plain"
+                                    }
+                                }
+                            ]
                         }
                     ],
                     "generationConfig": {
+                        "candidateCount": 1,
                         "temperature": 0.2,
+                        "topP": 0.9,
                         "maxOutputTokens": 65535,
                         "responseMimeType": "application/json"
                     }
@@ -292,7 +373,7 @@ class ArticleEnricher:
 
         return batch_requests
 
-    def upload_batch_request(self, requests: List[Dict], run_folder: str, source_type: str) -> str:
+    def upload_batch_request(self, requests: List[Dict], run_folder: str, source_type: str, branch_type: str) -> str:
         """
         Upload batch request JSONL to GCS.
 
@@ -300,6 +381,7 @@ class ArticleEnricher:
             requests: List of batch request entries
             run_folder: Run folder path
             source_type: Source type (complete, scraped_incomplete, etc.)
+            branch_type: Branch type (singleton or merged) to prevent path collisions
 
         Returns:
             GCS URI of uploaded file
@@ -307,8 +389,8 @@ class ArticleEnricher:
         # Create JSONL content
         jsonl_content = '\n'.join(json.dumps(r, ensure_ascii=False) for r in requests)
 
-        # Upload path
-        blob_path = f"{run_folder}/batch_enrichment/{source_type}/request.jsonl"
+        # Upload path (include branch_type to prevent collisions)
+        blob_path = f"{run_folder}/batch_enrichment/{source_type}/{branch_type}/request.jsonl"
 
         bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
         blob = bucket.blob(blob_path)
@@ -319,7 +401,7 @@ class ArticleEnricher:
 
         return gcs_uri
 
-    def submit_batch_job(self, request_uri: str, run_folder: str, source_type: str) -> Tuple[str, str]:
+    def submit_batch_job(self, request_uri: str, run_folder: str, source_type: str, branch_type: str) -> Tuple[str, str]:
         """
         Submit batch job to Vertex AI.
 
@@ -327,16 +409,17 @@ class ArticleEnricher:
             request_uri: GCS URI of batch request JSONL
             run_folder: Run folder path
             source_type: Source type for output path
+            branch_type: Branch type (singleton or merged) to prevent path collisions
 
         Returns:
             Tuple of (job_name, output_uri)
         """
-        # Output path - jsonl_transformer will be triggered here
-        output_uri = f"gs://{GCS_BUCKET_NAME}/{run_folder}/batch_enrichment/{source_type}/"
+        # Output path - jsonl_transformer will be triggered here (include branch_type)
+        output_uri = f"gs://{GCS_BUCKET_NAME}/{run_folder}/batch_enrichment/{source_type}/{branch_type}/"
 
         try:
             timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-            display_name = f"article-enricher-{source_type}-{timestamp}"
+            display_name = f"article-enricher-{source_type}-{branch_type}-{timestamp}"
             batch_config = CreateBatchJobConfig(dest=output_uri, display_name=display_name)
 
             logger.info(f"Submitting batch job...")
@@ -360,7 +443,7 @@ class ArticleEnricher:
             logger.error(f"Error submitting batch job: {e}")
             raise
 
-    def save_batch_metadata(self, run_folder: str, source_type: str,
+    def save_batch_metadata(self, run_folder: str, source_type: str, branch_type: str,
                            job_name: str, output_uri: str,
                            article_count: int) -> str:
         """Save batch job metadata for tracking."""
@@ -368,12 +451,13 @@ class ArticleEnricher:
             "job_name": job_name,
             "output_uri": output_uri,
             "source_type": source_type,
+            "branch_type": branch_type,
             "article_count": article_count,
             "submitted_at": datetime.now(timezone.utc).isoformat(),
             "status": "submitted"
         }
 
-        blob_path = f"{run_folder}/batch_enrichment/{source_type}/metadata.json"
+        blob_path = f"{run_folder}/batch_enrichment/{source_type}/{branch_type}/metadata.json"
         bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
         blob = bucket.blob(blob_path)
         blob.upload_from_string(
@@ -397,9 +481,10 @@ class ArticleEnricher:
         """
         date_str, run_id, filename = extract_path_info(gcs_path)
         source_type = extract_source_type(filename)
+        branch_type = extract_branch_type(filename)
         run_folder = f"ingestion/{date_str}/{run_id}"
 
-        logger.info(f"Processing: date={date_str}, run={run_id}, source={source_type}")
+        logger.info(f"Processing: date={date_str}, run={run_id}, source={source_type}, branch={branch_type}")
 
         # Download articles
         articles = self.download_articles(gcs_path)
@@ -410,24 +495,25 @@ class ArticleEnricher:
 
         logger.info(f"Creating batch request for {len(articles)} articles")
 
-        # Create batch request
-        batch_requests = self.create_batch_request(articles)
-        logger.info(f"Created {len(batch_requests)} batch request entries")
+        # Create batch request (uploads article batches to GCS with fileData pattern)
+        batch_requests = self.create_batch_request(articles, run_folder, source_type, branch_type)
+        logger.info(f"Created {len(batch_requests)} batch request entries (using fileData pattern)")
 
         # Upload batch request to GCS
-        request_uri = self.upload_batch_request(batch_requests, run_folder, source_type)
+        request_uri = self.upload_batch_request(batch_requests, run_folder, source_type, branch_type)
 
         # Submit batch job
-        job_name, output_uri = self.submit_batch_job(request_uri, run_folder, source_type)
+        job_name, output_uri = self.submit_batch_job(request_uri, run_folder, source_type, branch_type)
 
         # Save metadata
-        self.save_batch_metadata(run_folder, source_type, job_name, output_uri, len(articles))
+        self.save_batch_metadata(run_folder, source_type, branch_type, job_name, output_uri, len(articles))
 
         return {
             "status": "batch_submitted",
             "date": date_str,
             "run_id": run_id,
             "source_type": source_type,
+            "branch_type": branch_type,
             "input_file": gcs_path,
             "article_count": len(articles),
             "batch_requests": len(batch_requests),

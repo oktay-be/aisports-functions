@@ -112,7 +112,28 @@ Return ONLY valid JSON with decisions for ALL groups:
 }
 ```
 
-## Article Groups to Analyze:
+## Input
+The article groups to analyze are provided in the attached JSON file with this structure:
+```json
+{
+    "groups": [
+        {
+            "group_id": 1,
+            "max_similarity": 0.85,
+            "articles": [
+                {
+                    "article_id": "abc123",
+                    "title": "Article title",
+                    "body": "Article content...",
+                    "source": "example.com"
+                }
+            ]
+        }
+    ]
+}
+```
+
+Analyze ALL groups in the attached file and return decisions for each.
 """
 
 
@@ -173,12 +194,65 @@ class MergeDecider:
             logger.error(f"Error downloading {gcs_path}: {e}")
             return {}
 
-    def create_batch_request(self, groups: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def upload_batch_input(self, groups: List[Dict[str, Any]], run_folder: str,
+                            source_type: str, batch_index: int) -> str:
         """
-        Create batch request entries for groups.
+        Upload a batch of groups to GCS for fileData reference.
+        
+        Args:
+            groups: List of article groups for this batch
+            run_folder: Run folder path
+            source_type: Source type (complete, scraped, etc.)
+            batch_index: Index of this batch
+            
+        Returns:
+            GCS URI of uploaded file
+        """
+        # Prepare input data
+        llm_input = {
+            "groups": [
+                {
+                    "group_id": g.get('group_id', batch_index * 5 + idx),
+                    "max_similarity": g.get('max_similarity', 0),
+                    "articles": [
+                        {
+                            "article_id": a.get('article_id', ''),
+                            "title": a.get('title', ''),
+                            "body": (a.get('body', '') or '')[:1000],
+                            "source": a.get('source', '')
+                        }
+                        for a in g.get('articles', [])
+                    ]
+                }
+                for idx, g in enumerate(groups)
+            ]
+        }
+        
+        # Upload path: stage input folder
+        blob_path = f"{run_folder}/batch_merge/{source_type}/input/batch_{batch_index}.json"
+        
+        bucket = self.storage_client.bucket(GCS_BUCKET_NAME)
+        blob = bucket.blob(blob_path)
+        blob.upload_from_string(
+            json.dumps(llm_input, ensure_ascii=False, indent=2),
+            content_type='application/json'
+        )
+        
+        gcs_uri = f"gs://{GCS_BUCKET_NAME}/{blob_path}"
+        logger.info(f"Uploaded batch {batch_index} input to {gcs_uri} ({len(groups)} groups)")
+        
+        return gcs_uri
+
+    def create_batch_request(self, groups: List[Dict[str, Any]], 
+                              run_folder: str, source_type: str) -> List[Dict[str, Any]]:
+        """
+        Create batch request entries for groups using fileData pattern.
+        Uploads group batches to GCS and references them via fileData.
 
         Args:
             groups: List of article groups to process
+            run_folder: Run folder path for staging files
+            source_type: Source type for organizing staged files
 
         Returns:
             List of batch request entries
@@ -190,40 +264,32 @@ class MergeDecider:
 
         for i in range(0, len(groups), batch_size):
             batch = groups[i:i + batch_size]
+            batch_index = i // batch_size
 
-            # Prepare input for this batch
-            llm_input = {
-                "groups": [
-                    {
-                        "group_id": g.get('group_id', idx),
-                        "max_similarity": g.get('max_similarity', 0),
-                        "articles": [
-                            {
-                                "article_id": a.get('article_id', ''),
-                                "title": a.get('title', ''),
-                                "body": (a.get('body', '') or '')[:1000],
-                                "source": a.get('source', '')
-                            }
-                            for a in g.get('articles', [])
-                        ]
-                    }
-                    for idx, g in enumerate(batch, start=i)
-                ]
-            }
+            # Upload batch input to GCS
+            batch_gcs_uri = self.upload_batch_input(batch, run_folder, source_type, batch_index)
 
-            prompt = MERGE_DECISION_PROMPT + f"\n```json\n{json.dumps(llm_input, ensure_ascii=False, indent=2)}\n```"
-
-            # Create batch request entry
+            # Create batch request entry with fileData reference (like result_merger_function)
             request_entry = {
                 "request": {
                     "contents": [
                         {
                             "role": "user",
-                            "parts": [{"text": prompt}]
+                            "parts": [
+                                {"text": MERGE_DECISION_PROMPT},
+                                {
+                                    "fileData": {
+                                        "fileUri": batch_gcs_uri,
+                                        "mimeType": "text/plain"
+                                    }
+                                }
+                            ]
                         }
                     ],
                     "generationConfig": {
+                        "candidateCount": 1,
                         "temperature": 0.1,
+                        "topP": 0.9,
                         "maxOutputTokens": 4096,
                         "responseMimeType": "application/json"
                     }
@@ -416,9 +482,9 @@ class MergeDecider:
             )
             logger.info(f"Saved {len(singleton_articles)} singleton articles")
 
-        # Create batch request for groups needing decisions
-        batch_requests = self.create_batch_request(groups_to_process)
-        logger.info(f"Created {len(batch_requests)} batch request entries")
+        # Create batch request for groups needing decisions (uploads group batches to GCS with fileData pattern)
+        batch_requests = self.create_batch_request(groups_to_process, run_folder, source_type)
+        logger.info(f"Created {len(batch_requests)} batch request entries (using fileData pattern)")
 
         # Upload batch request to GCS
         request_uri = self.upload_batch_request(batch_requests, run_folder, source_type)
