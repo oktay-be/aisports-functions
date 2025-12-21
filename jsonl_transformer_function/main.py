@@ -320,10 +320,10 @@ def transform_enrichment_results(entries: List[Dict[str, Any]],
                 'enrichment_processor': 'batch_enrichment'
             }
 
-            # Normalize language
-            raw_lang = article.get('language', original.get('language', 'tr'))
-            lang = 'tr'
-            if isinstance(raw_lang, str):
+            # Normalize language - prefer LLM output, then original, keep empty if truly unknown
+            raw_lang = article.get('language') or original.get('language') or ''
+            lang = ''
+            if isinstance(raw_lang, str) and raw_lang:
                 clean_lang = raw_lang.lower().strip()
                 lang = LANGUAGE_MAP.get(clean_lang, clean_lang)
 

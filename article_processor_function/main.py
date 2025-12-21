@@ -209,7 +209,7 @@ class ArticleProcessor:
                 
                 # Ensure region is set from language (tr -> tr, everything else -> eu)
                 if 'region' not in article or not article.get('region'):
-                    normalized_lang = article.get('language', 'en')
+                    normalized_lang = article.get('language') or ''
                     article['region'] = 'tr' if normalized_lang == 'tr' else 'eu'
 
             logger.info(f"Downloaded {len(articles)} articles from {gcs_uri}")
@@ -397,7 +397,8 @@ class ArticleProcessor:
             })
             normalized.setdefault('content_quality', 'medium')
             normalized.setdefault('confidence', 0.5)
-            normalized.setdefault('language', 'tr')
+            # Don't default language - preserve from source or leave empty
+            normalized.setdefault('language', '')
             normalized.setdefault('x_post', '')
             # Derive region from language if not set: tr -> tr, everything else -> eu
             if 'region' not in normalized or not normalized.get('region'):

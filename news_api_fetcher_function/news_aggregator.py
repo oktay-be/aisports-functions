@@ -304,7 +304,7 @@ class NewsAggregator:
                 "image_url": article.get("image"),
                 "sentiment": article.get("sentiment"),
                 "api_source": "worldnewsapi",
-                "language": article.get("language", "en"),
+                "language": article.get("language"),  # Preserve None if not provided by API
                 "categories": [article.get("category")] if article.get("category") else [],
                 "key_entities": {"competitions": [], "locations": [], "players": [], "teams": []},
                 "content_quality": "medium",
@@ -375,7 +375,7 @@ class NewsAggregator:
                 "content": article.get("content") or article.get("description", ""),
                 "image_url": article.get("image"),
                 "api_source": "gnews",
-                "language": article.get("lang", "en"),
+                "language": article.get("lang"),  # Preserve None if not provided by API
                 "categories": [],
                 "key_entities": {"competitions": [], "locations": [], "players": [], "teams": []},
                 "content_quality": "medium",
