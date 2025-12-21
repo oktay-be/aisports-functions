@@ -281,22 +281,44 @@ async def _process_scraping_request(message_data: dict):
         if api_run_path:
             logger.info(f"API integration mode detected: saving to {api_run_path}/scraped_incomplete_articles.json")
 
-            # Merge all sessions into single list of articles
-            # Add language/region to each article based on the scraper's region
-            # region 'tr' -> language 'tr', region 'eu' -> language stays empty (unknown)
-            language_for_region = 'tr' if region == 'tr' else ''
+            # Read to_scrape.json to get original language/region for each URL
+            url_metadata = {}  # url -> {language, region}
+            to_scrape_path = f"{api_run_path}/to_scrape.json"
             
+            if ENVIRONMENT != 'local' and storage_client:
+                try:
+                    bucket = storage_client.bucket(GCS_BUCKET_NAME)
+                    blob = bucket.blob(to_scrape_path)
+                    if blob.exists():
+                        to_scrape_data = json.loads(blob.download_as_string())
+                        for article in to_scrape_data.get('articles', []):
+                            url = article.get('url')
+                            if url:
+                                url_metadata[url] = {
+                                    'language': article.get('language', ''),
+                                    'region': article.get('region', 'eu')
+                                }
+                        logger.info(f"Loaded language/region metadata for {len(url_metadata)} URLs from to_scrape.json")
+                    else:
+                        logger.warning(f"to_scrape.json not found at {to_scrape_path}")
+                except Exception as e:
+                    logger.warning(f"Could not read to_scrape.json: {e}")
+
+            # Merge all sessions into single list of articles
             all_articles = []
             source_domains = []
 
             for session in source_sessions:
                 articles = session.get("articles", [])
-                # Add language and region to each article
+                # Add language and region to each article from original to_scrape.json data
                 for article in articles:
+                    url = article.get('url') or article.get('original_url', '')
+                    original_meta = url_metadata.get(url, {})
+                    
                     if 'language' not in article or not article.get('language'):
-                        article['language'] = language_for_region
+                        article['language'] = original_meta.get('language', '')
                     if 'region' not in article or not article.get('region'):
-                        article['region'] = region
+                        article['region'] = original_meta.get('region', 'eu')
                 all_articles.extend(articles)
                 source_domain = session.get("source_domain", "unknown")
                 if source_domain not in source_domains:
@@ -407,7 +429,8 @@ async def _process_scraping_request(message_data: dict):
                 processed_urls = get_processed_urls_for_date(storage_client, GCS_BUCKET_NAME, start_time, region)
 
         # Process each session
-        # For scraped articles: region 'tr' -> language 'tr', region 'eu' -> language stays empty
+        # In non-API mode (direct scraper trigger), use the region parameter
+        # language is set based on region: 'tr' -> 'tr', others -> empty
         language_for_region = 'tr' if region == 'tr' else ''
         
         for i, session in enumerate(source_sessions):
@@ -427,7 +450,7 @@ async def _process_scraping_request(message_data: dict):
                     # Generate unique article ID based on URL
                     if url:
                         article["article_id"] = generate_article_id(url)
-                    # Add language and region to each article
+                    # Add language and region based on the scraper's region parameter
                     if 'language' not in article or not article.get('language'):
                         article['language'] = language_for_region
                     if 'region' not in article or not article.get('region'):
