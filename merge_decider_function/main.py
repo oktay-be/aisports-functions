@@ -106,7 +106,9 @@ Return ONLY valid JSON with decisions for ALL groups:
       "decision": "MERGE" or "KEEP_BOTH",
       "reason": "Brief explanation",
       "primary_article_id": "ID of best article if MERGE, null if KEEP_BOTH",
-      "merged_article_ids": ["IDs of merged articles"] or []
+      "primary_article_url": "URL of best article if MERGE, null if KEEP_BOTH",
+      "merged_article_ids": ["IDs of merged articles"] or [],
+      "merged_from_urls": ["URLs of merged articles"] or []
     }
   ]
 }
@@ -123,6 +125,7 @@ The article groups to analyze are provided in the attached JSON file with this s
             "articles": [
                 {
                     "article_id": "abc123",
+                    "url": "https://example.com/article",
                     "title": "Article title",
                     "body": "Article content...",
                     "source": "example.com"
@@ -134,6 +137,7 @@ The article groups to analyze are provided in the attached JSON file with this s
 ```
 
 Analyze ALL groups in the attached file and return decisions for each.
+For MERGE decisions, set primary_article_url to the URL of the best article, and merged_from_urls to the URLs of ALL articles being merged (including the primary).
 """
 
 
@@ -217,6 +221,7 @@ class MergeDecider:
                     "articles": [
                         {
                             "article_id": a.get('article_id', ''),
+                            "url": a.get('original_url', a.get('url', '')),
                             "title": a.get('title', ''),
                             "body": (a.get('body', '') or '')[:1000],
                             "source": a.get('source', '')

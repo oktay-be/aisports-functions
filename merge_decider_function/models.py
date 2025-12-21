@@ -17,7 +17,13 @@ VERTEX_AI_RESPONSE_SCHEMA = {
                     "decision": {"type": "string", "enum": ["MERGE", "KEEP_BOTH"]},
                     "reason": {"type": "string"},
                     "primary_article_id": {"type": "string", "nullable": True},
+                    "primary_article_url": {"type": "string", "nullable": True},
+                    # DEPRECATED: Use merged_from_urls instead
                     "merged_article_ids": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    },
+                    "merged_from_urls": {
                         "type": "array",
                         "items": {"type": "string"}
                     }

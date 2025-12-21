@@ -384,7 +384,10 @@ def transform_merge_results(entries: List[Dict[str, Any]], groups_data: Dict[str
             'decision': decision.get('decision', 'KEEP_BOTH'),
             'reason': decision.get('reason', ''),
             'primary_article_id': decision.get('primary_article_id'),
+            'primary_article_url': decision.get('primary_article_url'),
+            # DEPRECATED: merged_article_ids - use merged_from_urls instead
             'merged_article_ids': decision.get('merged_article_ids', []),
+            'merged_from_urls': decision.get('merged_from_urls', []),
             '_merge_metadata': {
                 'decided_at': datetime.now(timezone.utc).isoformat(),
                 'processor': 'batch_merge'
@@ -467,26 +470,33 @@ def apply_merge_decisions(decisions: List[Dict], groups_data: Dict) -> List[Dict
             # Find primary article
             primary_id = decision.get('primary_article_id')
             primary_article = None
-            merged_urls = []
+            
+            # Use merged_from_urls from LLM decision if available, otherwise collect from articles
+            merged_from_urls = decision.get('merged_from_urls', [])
+            if not merged_from_urls:
+                # Fallback: collect URLs from articles
+                for article in articles:
+                    url = article.get('original_url', article.get('url', ''))
+                    if url:
+                        merged_from_urls.append(url)
 
             for article in articles:
                 if article.get('article_id') == primary_id:
                     primary_article = article.copy()
-                merged_urls.append(article.get('url', ''))
 
             if not primary_article and articles:
                 primary_article = articles[0].copy()
 
             if primary_article:
-                # Explicitly set merged_from_urls on the article object
-                primary_article['merged_from_urls'] = merged_urls
+                # Set merged_from_urls on the article object (canonical field name)
+                primary_article['merged_from_urls'] = merged_from_urls
                 
                 primary_article['_merge_metadata'] = {
                     'decision': 'MERGED',
                     'reason': decision.get('reason', ''),
                     'group_id': group_id,
                     'merged_from_count': len(articles),
-                    'merged_urls': merged_urls
+                    'merged_from_urls': merged_from_urls
                 }
                 output_articles.append(primary_article)
 
