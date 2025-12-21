@@ -264,8 +264,10 @@ class MergeDecider:
         """
         batch_requests = []
 
-        # Group into batches of 5 groups per request (smaller batches for merge decisions)
-        batch_size = 5
+        # Group into batches of 2 groups per request
+        # Reduced from 5 to prevent output truncation when groups have many articles
+        # Each group with N articles needs ~N*40 tokens for merged_article_ids + merged_from_urls
+        batch_size = 2
 
         for i in range(0, len(groups), batch_size):
             batch = groups[i:i + batch_size]
@@ -295,7 +297,7 @@ class MergeDecider:
                         "candidateCount": 1,
                         "temperature": 0.1,
                         "topP": 0.9,
-                        "maxOutputTokens": 4096,
+                        "maxOutputTokens": 65535,
                         "responseMimeType": "application/json"
                     }
                 }

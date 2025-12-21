@@ -178,7 +178,14 @@ The articles to process are provided in the attached JSON file with this structu
 }
 ```
 
-Process ALL articles in the attached file and return enriched versions.
+## CRITICAL INSTRUCTIONS
+1. Process **EVERY SINGLE article** in the attached file - do NOT skip any
+2. Return **EXACTLY the same number of articles** as provided in the input
+3. Do NOT merge, deduplicate, or combine similar articles - each article must be enriched separately
+4. Even if articles cover the same topic, treat each as a unique item requiring its own enrichment
+5. The input has already been deduplicated - your job is ONLY to enrich, not to filter
+
+Process ALL articles and return enriched versions for EACH ONE.
 """
 
 
