@@ -162,25 +162,37 @@ def normalize_article(article: Dict[str, Any], content_map: Dict[str, str] = Non
 
 def load_content_map(date: str) -> Dict[str, str]:
     """
-    Load article content (body) from singleton and decision files.
+    Load article content (body) from batch input files.
+    These are the most reliable source as they contain the exact
+    articles sent to the LLM for enrichment.
+    
+    Folder patterns:
+    - batch_enrichment/{source_type}/merged/input/*.json
+    - batch_enrichment/{source_type}/singleton/input/*.json
+    
     Returns a map of article_id -> body content.
     """
     content_map = {}
-    prefix = f"ingestion/{date}/"
     
     try:
         bucket = storage_client.bucket(GCS_BUCKET_NAME)
-        blobs = list(bucket.list_blobs(prefix=prefix))
         
-        # Filter for singleton and decision files (which have body content)
-        content_files = [
-            b for b in blobs
-            if (b.name.startswith(f"{prefix}singleton_") or b.name.startswith(f"{prefix}decision_"))
-            and b.name.endswith('_articles.json')
-            and 'batch_' not in b.name  # Exclude batch subfolder files
+        # Search all run folders for the date
+        date_prefix = f"ingestion/{date}/"
+        date_blobs = list(bucket.list_blobs(prefix=date_prefix, delimiter='/'))
+        
+        # Find all batch_enrichment input folders across all runs
+        all_blobs = list(bucket.list_blobs(prefix=date_prefix))
+        
+        # Filter for batch input JSON files
+        input_files = [
+            b for b in all_blobs
+            if '/batch_enrichment/' in b.name
+            and '/input/' in b.name
+            and b.name.endswith('.json')
         ]
         
-        for blob in content_files:
+        for blob in input_files:
             try:
                 data = json.loads(blob.download_as_text())
                 articles = data.get('articles', [])
@@ -199,7 +211,7 @@ def load_content_map(date: str) -> Dict[str, str]:
     except Exception as e:
         logger.error(f"Error loading content map for {date}: {e}")
     
-    logger.info(f"Loaded content for {len(content_map)} articles from {date}")
+    logger.info(f"Loaded content for {len(content_map)} articles from batch inputs")
     return content_map
 
 

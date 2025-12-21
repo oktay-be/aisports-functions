@@ -433,12 +433,15 @@ def load_singletons(run_folder: str, source_type: str) -> List[Dict[str, Any]]:
 
 def load_original_articles(run_folder: str, source_type: str) -> Dict[str, Dict[str, Any]]:
     """
-    Load original articles from singleton and decision files to get body content
+    Load original articles from batch input files to get body content
     and metadata (published_date, source, etc.) that LLM enrichment may not return.
 
-    File patterns loaded:
-    - singleton_{source_type}_articles.json
-    - decision_{source_type}_articles.json
+    These batch input files are the most reliable source as they contain
+    the exact articles sent to the LLM for enrichment.
+
+    Folder patterns loaded:
+    - batch_enrichment/{source_type}/merged/input/*.json
+    - batch_enrichment/{source_type}/singleton/input/*.json
 
     Returns:
         Dict mapping article_id to original article data (with body)
@@ -446,38 +449,44 @@ def load_original_articles(run_folder: str, source_type: str) -> Dict[str, Dict[
     article_map = {}
     bucket = storage_client.bucket(GCS_BUCKET_NAME)
 
-    # File patterns to load
-    file_patterns = [
-        f"{run_folder}/singleton_{source_type}_articles.json",
-        f"{run_folder}/decision_{source_type}_articles.json"
+    # Folder patterns for batch input files
+    input_folders = [
+        f"{run_folder}/batch_enrichment/{source_type}/merged/input/",
+        f"{run_folder}/batch_enrichment/{source_type}/singleton/input/"
     ]
 
-    for file_path in file_patterns:
+    for folder_prefix in input_folders:
         try:
-            blob = bucket.blob(file_path)
+            blobs = list(bucket.list_blobs(prefix=folder_prefix))
+            json_blobs = [b for b in blobs if b.name.endswith('.json')]
 
-            if not blob.exists():
-                logger.info(f"File not found: {file_path}")
+            if not json_blobs:
+                logger.info(f"No batch input files found in: {folder_prefix}")
                 continue
 
-            content = blob.download_as_text()
-            data = json.loads(content)
+            for blob in json_blobs:
+                try:
+                    content = blob.download_as_text()
+                    data = json.loads(content)
 
-            # Both singleton and decision files have 'articles' array
-            articles = data.get('articles', [])
+                    # Batch input files have 'articles' array
+                    articles = data.get('articles', [])
 
-            # Add to map by article_id
-            for article in articles:
-                aid = article.get('article_id', '')
-                if aid and article.get('body'):  # Only include if has body
-                    article_map[aid] = article
+                    # Add to map by article_id
+                    for article in articles:
+                        aid = article.get('article_id', '')
+                        if aid and article.get('body'):  # Only include if has body
+                            article_map[aid] = article
 
-            logger.info(f"Loaded {len(articles)} articles from {file_path}")
+                    logger.info(f"Loaded {len(articles)} articles from {blob.name}")
+
+                except Exception as e:
+                    logger.warning(f"Could not load {blob.name}: {e}")
 
         except Exception as e:
-            logger.warning(f"Could not load {file_path}: {e}")
+            logger.warning(f"Could not list blobs in {folder_prefix}: {e}")
 
-    logger.info(f"Total {len(article_map)} articles with body loaded for metadata merge")
+    logger.info(f"Total {len(article_map)} articles with body loaded from batch inputs")
     return article_map
 
 
