@@ -282,11 +282,21 @@ async def _process_scraping_request(message_data: dict):
             logger.info(f"API integration mode detected: saving to {api_run_path}/scraped_incomplete_articles.json")
 
             # Merge all sessions into single list of articles
+            # Add language/region to each article based on the scraper's region
+            # region 'tr' -> language 'tr', region 'eu' -> language stays empty (unknown)
+            language_for_region = 'tr' if region == 'tr' else ''
+            
             all_articles = []
             source_domains = []
 
             for session in source_sessions:
                 articles = session.get("articles", [])
+                # Add language and region to each article
+                for article in articles:
+                    if 'language' not in article or not article.get('language'):
+                        article['language'] = language_for_region
+                    if 'region' not in article or not article.get('region'):
+                        article['region'] = region
                 all_articles.extend(articles)
                 source_domain = session.get("source_domain", "unknown")
                 if source_domain not in source_domains:
@@ -397,6 +407,9 @@ async def _process_scraping_request(message_data: dict):
                 processed_urls = get_processed_urls_for_date(storage_client, GCS_BUCKET_NAME, start_time, region)
 
         # Process each session
+        # For scraped articles: region 'tr' -> language 'tr', region 'eu' -> language stays empty
+        language_for_region = 'tr' if region == 'tr' else ''
+        
         for i, session in enumerate(source_sessions):
             logger.info(f"Processing session {i+1}/{len(source_sessions)}")
             
@@ -414,6 +427,11 @@ async def _process_scraping_request(message_data: dict):
                     # Generate unique article ID based on URL
                     if url:
                         article["article_id"] = generate_article_id(url)
+                    # Add language and region to each article
+                    if 'language' not in article or not article.get('language'):
+                        article['language'] = language_for_region
+                    if 'region' not in article or not article.get('region'):
+                        article['region'] = region
                     unique_articles.append(article)
                     if url:
                         processed_urls.add(url)

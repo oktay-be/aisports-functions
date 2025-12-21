@@ -293,6 +293,19 @@ class NewsAggregator:
             # Store raw API response
             self.raw_responses['worldnewsapi'] = data
 
+            def get_worldnews_language(article):
+                """
+                Get language from WorldNewsAPI article.
+                source_country has precedence over language field for determining region.
+                WorldNewsAPI sometimes returns incorrect language (e.g., 'en' for Turkish articles).
+                """
+                source_country = article.get("source_country", "")
+                # source_country takes precedence - if Turkish source, return Turkish language
+                if source_country == "tr":
+                    return "tr"
+                # Fall back to API's language field
+                return article.get("language")
+
             articles = [{
                 "title": article.get("title") or "Untitled",
                 "url": article.get("url"),
@@ -304,7 +317,8 @@ class NewsAggregator:
                 "image_url": article.get("image"),
                 "sentiment": article.get("sentiment"),
                 "api_source": "worldnewsapi",
-                "language": article.get("language"),  # Preserve None if not provided by API
+                "language": get_worldnews_language(article),
+                "source_country": article.get("source_country"),  # Preserve for debugging
                 "categories": [article.get("category")] if article.get("category") else [],
                 "key_entities": {"competitions": [], "locations": [], "players": [], "teams": []},
                 "content_quality": "medium",
@@ -375,7 +389,7 @@ class NewsAggregator:
                 "content": article.get("content") or article.get("description", ""),
                 "image_url": article.get("image"),
                 "api_source": "gnews",
-                "language": article.get("lang"),  # Preserve None if not provided by API
+                "language": article.get("lang"),  # Use API's lang field directly
                 "categories": [],
                 "key_entities": {"competitions": [], "locations": [], "players": [], "teams": []},
                 "content_quality": "medium",
