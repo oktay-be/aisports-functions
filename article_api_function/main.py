@@ -148,7 +148,7 @@ def normalize_article(article: Dict[str, Any]) -> Dict[str, Any]:
         '_grouping_metadata': article.get('_grouping_metadata'),
         '_merge_metadata': article.get('_merge_metadata'),
         '_processing_metadata': article.get('_processing_metadata'),
-        'source_type': 'processed'
+        'source_type': article.get('source_type', 'scraped')  # Use stored value, default to 'scraped'
     }
 
 

@@ -46,20 +46,23 @@ def generate_article_id(url: str, published_date: Optional[str] = None) -> str:
     return hash_bytes[:16]
 
 
-def add_article_ids(articles: list[dict]) -> list[dict]:
+def add_article_ids(articles: list[dict], source_type: str = 'scraped') -> list[dict]:
     """
-    Add article_id to a list of articles in-place.
+    Add article_id and source_type to a list of articles in-place.
     
     Args:
         articles: List of article dictionaries with 'url', 'link', or 'original_url' field
+        source_type: The source type for these articles ('api' or 'scraped', default: 'scraped')
     
     Returns:
-        The same list with 'article_id' field added to each article
+        The same list with 'article_id' and 'source_type' fields added to each article
     """
     for article in articles:
         # Check various common URL field names
         url = article.get("url") or article.get("link") or article.get("original_url")
         if url:
             article["article_id"] = generate_article_id(url)
+        # Add source_type to each article
+        article["source_type"] = source_type
     
     return articles

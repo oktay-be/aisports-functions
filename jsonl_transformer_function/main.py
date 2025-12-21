@@ -335,6 +335,7 @@ def transform_enrichment_results(entries: List[Dict[str, Any]]) -> List[Dict[str
                 'confidence': article.get('confidence', 0.8),
                 'language': lang,
                 'region': article.get('region', 'eu'),
+                'source_type': article.get('source_type', 'scraped'),  # Preserve source_type, default to 'scraped'
                 '_processing_metadata': processing_metadata,
                 '_merge_metadata': article.get('_merge_metadata')  # Preserve merge metadata
             })

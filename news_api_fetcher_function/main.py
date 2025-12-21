@@ -122,6 +122,7 @@ def transform_api_article_to_session_schema(article: dict) -> dict:
         "published_at": article.get('published_date', ''),
         "source": domain,
         "extraction_method": f"api:{article.get('api_source', 'unknown')}",
+        "source_type": "api",  # Standardized source type for UI filtering
         "site": domain,
         "article_id": article_id,
         "language": language,

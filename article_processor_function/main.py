@@ -395,6 +395,10 @@ class ArticleProcessor:
             normalized.setdefault('confidence', 0.5)
             normalized.setdefault('language', 'turkish')
             normalized.setdefault('x_post', '')
+            # Preserve source_type from article or infer from extraction_method
+            if 'source_type' not in normalized:
+                extraction_method = normalized.get('extraction_method', '')
+                normalized['source_type'] = 'api' if extraction_method.startswith('api') else 'scraped'
             normalized['_processing_metadata'] = metadata
             return normalized
 
