@@ -63,6 +63,3 @@ jobs:
           --region=${{ vars.REGION }} \
           --member="allUsers" \
           --role="roles/run.invoker"
-        flags: |
-          --allow-unauthenticated
-          --service-account=${{ vars.GCP_SERVICE_ACCOUNT }}
