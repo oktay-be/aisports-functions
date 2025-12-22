@@ -63,6 +63,12 @@ EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'text-embedding-004')
 CROSS_RUN_DEDUP_THRESHOLD = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD', '0.7'))
 GROUPING_THRESHOLD = float(os.getenv('GROUPING_THRESHOLD', '0.8'))
 
+# Region-specific cross-run dedup thresholds
+# TR: Lower threshold (0.7) - Turkish content has higher overlap across sources
+# EU: Higher threshold (0.9) - European content more unique, stricter dedup
+CROSS_RUN_DEDUP_THRESHOLD_TR = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD_TR', '0.7'))
+CROSS_RUN_DEDUP_THRESHOLD_EU = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD_EU', '0.9'))
+
 # Language normalization map
 LANGUAGE_MAP = {
     'turkish': 'tr',
@@ -157,10 +163,19 @@ class ArticleProcessor:
                 # Initialize services
                 self.embedding_service = EmbeddingService(self.genai_client)
                 self.grouping_service = GroupingService(threshold=GROUPING_THRESHOLD)
+                
+                # Build region-specific threshold map
+                region_thresholds = {
+                    'tr': CROSS_RUN_DEDUP_THRESHOLD_TR,
+                    'eu': CROSS_RUN_DEDUP_THRESHOLD_EU,
+                }
+                logger.info(f"Region thresholds configured: {region_thresholds}")
+                
                 self.deduplicator = CrossRunDeduplicator(
                     storage_client=self.storage_client,
                     bucket_name=GCS_BUCKET_NAME,
-                    threshold=CROSS_RUN_DEDUP_THRESHOLD
+                    threshold=CROSS_RUN_DEDUP_THRESHOLD,
+                    region_thresholds=region_thresholds
                 )
 
             except Exception as e:
@@ -359,7 +374,11 @@ class ArticleProcessor:
             self.save_json_to_gcs({
                 "dropped_articles": dedup_log,
                 "count": len(dedup_log),
-                "threshold": CROSS_RUN_DEDUP_THRESHOLD,
+                "default_threshold": CROSS_RUN_DEDUP_THRESHOLD,
+                "region_thresholds": {
+                    "tr": CROSS_RUN_DEDUP_THRESHOLD_TR,
+                    "eu": CROSS_RUN_DEDUP_THRESHOLD_EU
+                },
                 "created_at": datetime.now(timezone.utc).isoformat()
             }, dedup_log_path)
 

@@ -3,19 +3,28 @@ Cross-Run Deduplication Service
 
 Compares articles against embeddings from previous runs within the same day.
 Drops articles that are too similar to previously processed articles.
+
+Supports region-specific thresholds (e.g., EU: 0.9, TR: 0.7) to account for
+different content overlap characteristics across regions.
 """
 
 import json
 import logging
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Tuple, Set
+from typing import List, Dict, Any, Tuple, Set, Optional
 import numpy as np
 from google.cloud import storage
 
 logger = logging.getLogger(__name__)
 
-# Cross-run dedup threshold - drop if similarity exceeds this
+# Default cross-run dedup threshold - drop if similarity exceeds this
 CROSS_RUN_DEDUP_THRESHOLD = 0.7
+
+# Region-specific defaults (can be overridden via constructor)
+DEFAULT_REGION_THRESHOLDS = {
+    'tr': 0.7,  # Turkish content - lower threshold due to higher content overlap
+    'eu': 0.9,  # European content - higher threshold for stricter dedup
+}
 
 
 class CrossRunDeduplicator:
@@ -25,13 +34,17 @@ class CrossRunDeduplicator:
     Loads embeddings from all previous run folders that have completed
     (identified by presence of embeddings/*.json files) and compares
     new articles against them.
+    
+    Supports region-specific thresholds to handle varying content overlap
+    characteristics across different regions.
     """
 
     def __init__(
         self,
         storage_client: storage.Client,
         bucket_name: str,
-        threshold: float = CROSS_RUN_DEDUP_THRESHOLD
+        threshold: float = CROSS_RUN_DEDUP_THRESHOLD,
+        region_thresholds: Optional[Dict[str, float]] = None
     ):
         """
         Initialize the cross-run deduplicator.
@@ -39,12 +52,32 @@ class CrossRunDeduplicator:
         Args:
             storage_client: GCS storage client
             bucket_name: GCS bucket name
-            threshold: Similarity threshold for deduplication (default 0.7)
+            threshold: Default similarity threshold for deduplication (default 0.7)
+            region_thresholds: Optional dict mapping region codes to thresholds
+                              e.g., {'tr': 0.7, 'eu': 0.9}
         """
         self.storage_client = storage_client
         self.bucket_name = bucket_name
         self.threshold = threshold
-        logger.info(f"CrossRunDeduplicator initialized: threshold={threshold}")
+        self.region_thresholds = region_thresholds or DEFAULT_REGION_THRESHOLDS.copy()
+        logger.info(
+            f"CrossRunDeduplicator initialized: default_threshold={threshold}, "
+            f"region_thresholds={self.region_thresholds}"
+        )
+
+    def get_threshold_for_region(self, region: Optional[str]) -> float:
+        """
+        Get the deduplication threshold for a specific region.
+        
+        Args:
+            region: Region code (e.g., 'tr', 'eu') or None
+            
+        Returns:
+            Threshold for the region, or default threshold if region not configured
+        """
+        if region and region.lower() in self.region_thresholds:
+            return self.region_thresholds[region.lower()]
+        return self.threshold
 
     def list_previous_embedding_files(
         self,
@@ -197,8 +230,11 @@ class CrossRunDeduplicator:
         """
         Deduplicate articles against previous runs.
 
+        Uses region-specific thresholds when available. Each article's region
+        is checked to determine the appropriate threshold.
+
         Args:
-            articles: List of article dictionaries
+            articles: List of article dictionaries (may contain 'region' field)
             embeddings: Embeddings for the articles (same order)
             date_str: Date string (YYYY-MM-DD)
             current_run_id: Current run ID
@@ -224,31 +260,55 @@ class CrossRunDeduplicator:
         kept_articles = []
         kept_embeddings = []
         dropped_log = []
+        
+        # Track stats by region for logging
+        region_stats = {}
 
         for i, (article, similarity) in enumerate(zip(articles, max_similarities)):
-            if similarity >= self.threshold:
+            # Get region-specific threshold
+            region = article.get('region')
+            threshold = self.get_threshold_for_region(region)
+            
+            # Track region stats
+            region_key = region or 'unknown'
+            if region_key not in region_stats:
+                region_stats[region_key] = {'threshold': threshold, 'kept': 0, 'dropped': 0}
+            
+            if similarity >= threshold:
                 # Drop - too similar to previous article
                 dropped_log.append({
                     "article_id": article.get("article_id", "unknown"),
                     "title": article.get("title", "")[:100],
                     "url": article.get("url", ""),
+                    "region": region,
                     "max_similarity": float(similarity),
-                    "threshold": self.threshold,
+                    "threshold": threshold,
                     "reason": "cross_run_duplicate"
                 })
+                region_stats[region_key]['dropped'] += 1
                 logger.debug(
-                    f"Dropping article (sim={similarity:.3f}): {article.get('title', '')[:50]}"
+                    f"Dropping article (sim={similarity:.3f}, threshold={threshold}, region={region}): "
+                    f"{article.get('title', '')[:50]}"
                 )
             else:
                 kept_articles.append(article)
                 kept_embeddings.append(embeddings[i])
+                region_stats[region_key]['kept'] += 1
 
         kept_embeddings_array = np.array(kept_embeddings) if kept_embeddings else np.array([])
 
+        # Log overall stats
         logger.info(
             f"Cross-run dedup: {len(articles)} -> {len(kept_articles)} articles "
             f"({len(dropped_log)} dropped)"
         )
+        
+        # Log per-region stats
+        for region, stats in region_stats.items():
+            logger.info(
+                f"  Region '{region}': threshold={stats['threshold']}, "
+                f"kept={stats['kept']}, dropped={stats['dropped']}"
+            )
 
         return kept_articles, kept_embeddings_array, dropped_log
 

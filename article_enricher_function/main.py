@@ -116,7 +116,14 @@ You MUST preserve the following fields exactly as they appear in the input:
 - Fans: `fan-activity`, `fan-rivalry`, `fan-protest`
 - Rivalry: `team-rivalry`, `personal-rivalry`, `derby`
 - Media: `interviews`, `social-media`, `gossip-entertainment`, `player-statement`, `club-statement`
+
+**Keyword Tags (REQUIRED when article mentions these):**
 {formatted_keywords}
+
+## IMPORTANT: Keyword-Based Tagging
+For each article, check the `keywords_used` field in the input. If the article content mentions any of these keywords,
+you MUST add that keyword as a category tag with confidence 0.8-0.95 based on how prominently it appears.
+Example: if keywords_used=["fenerbahce"] and article mentions Fenerbahce → add {{"tag": "fenerbahce", "confidence": 0.9}}
 
 ## x_post Rules (CRITICAL)
 - ALWAYS in Turkish
@@ -316,7 +323,7 @@ class ArticleEnricher:
         
         return gcs_uri
 
-    def create_batch_request(self, articles: List[Dict[str, Any]], 
+    def create_batch_request(self, articles: List[Dict[str, Any]],
                               run_folder: str, source_type: str, branch_type: str) -> List[Dict[str, Any]]:
         """
         Create batch request entries for all articles using fileData pattern.
@@ -332,6 +339,23 @@ class ArticleEnricher:
             List of batch request entries (one per article batch)
         """
         batch_requests = []
+
+        # Collect all unique keywords from articles for prompt formatting
+        all_keywords = set()
+        for article in articles:
+            keywords = article.get('keywords_used', article.get('keywords_matched', []))
+            if keywords:
+                all_keywords.update(k.lower() for k in keywords if isinstance(k, str))
+
+        # Format keywords as tag list for the prompt
+        if all_keywords:
+            formatted_keywords = "- " + ", ".join(f"`{kw}`" for kw in sorted(all_keywords))
+        else:
+            formatted_keywords = "- (none specified)"
+
+        # Format the prompt with actual keywords
+        formatted_prompt = ENRICHMENT_PROMPT.format(formatted_keywords=formatted_keywords)
+        logger.info(f"Formatted prompt with keywords: {sorted(all_keywords)}")
 
         # Group articles into batches of 10 for efficient processing
         batch_size = 10
@@ -350,7 +374,7 @@ class ArticleEnricher:
                         {
                             "role": "user",
                             "parts": [
-                                {"text": ENRICHMENT_PROMPT},
+                                {"text": formatted_prompt},
                                 {
                                     "fileData": {
                                         "fileUri": batch_gcs_uri,
