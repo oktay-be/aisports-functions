@@ -554,17 +554,21 @@ def handle_trigger_scraper(request: Request):
     user = verify_google_token(request)
     if not user:
         return error_response('Invalid or missing token', 401)
-    
+
     try:
         data = request.get_json()
-        
-        # Validate required fields
-        if not data.get('urls') or not data.get('region'):
-            return error_response('Missing urls or region', 400)
-        
+
+        # Validate required fields (scraper requires urls, keywords, and region)
+        if not data.get('urls'):
+            return error_response('Missing urls', 400)
+        if not data.get('keywords'):
+            return error_response('Missing keywords', 400)
+        if not data.get('region'):
+            return error_response('Missing region', 400)
+
         payload = {
             'urls': data['urls'],
-            'keywords': data.get('keywords', []),
+            'keywords': data['keywords'],
             'region': data['region'],
             'scrape_depth': data.get('scrape_depth', 1),
             'persist': data.get('persist', True),
