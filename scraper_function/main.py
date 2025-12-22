@@ -281,8 +281,9 @@ async def _process_scraping_request(message_data: dict):
         if api_run_path:
             logger.info(f"API integration mode detected: saving to {api_run_path}/scraped_incomplete_articles.json")
 
-            # Read to_scrape.json to get original language/region for each URL
-            url_metadata = {}  # url -> {language, region}
+            # Read to_scrape.json to get original metadata for each URL
+            # This preserves API-derived fields like publish_date, source_type, article_id
+            url_metadata = {}  # url -> {language, region, publish_date, source_type, article_id}
             to_scrape_path = f"{api_run_path}/to_scrape.json"
             
             if ENVIRONMENT != 'local' and storage_client:
@@ -296,9 +297,12 @@ async def _process_scraping_request(message_data: dict):
                             if url:
                                 url_metadata[url] = {
                                     'language': article.get('language', ''),
-                                    'region': article.get('region', 'eu')
+                                    'region': article.get('region', 'eu'),
+                                    'publish_date': article.get('publish_date'),
+                                    'source_type': article.get('source_type', 'api'),
+                                    'article_id': article.get('article_id'),
                                 }
-                        logger.info(f"Loaded language/region metadata for {len(url_metadata)} URLs from to_scrape.json")
+                        logger.info(f"Loaded metadata for {len(url_metadata)} URLs from to_scrape.json (including publish_date, source_type)")
                     else:
                         logger.warning(f"to_scrape.json not found at {to_scrape_path}")
                 except Exception as e:
@@ -310,15 +314,28 @@ async def _process_scraping_request(message_data: dict):
 
             for session in source_sessions:
                 articles = session.get("articles", [])
-                # Add language and region to each article from original to_scrape.json data
+                # Apply original metadata from to_scrape.json to preserve API-derived fields
                 for article in articles:
                     url = article.get('url') or article.get('original_url', '')
                     original_meta = url_metadata.get(url, {})
                     
+                    # Preserve language and region
                     if 'language' not in article or not article.get('language'):
                         article['language'] = original_meta.get('language', '')
                     if 'region' not in article or not article.get('region'):
                         article['region'] = original_meta.get('region', 'eu')
+                    
+                    # Preserve publish_date from API if scraper didn't extract one
+                    if not article.get('published_at') and original_meta.get('publish_date'):
+                        article['published_at'] = original_meta.get('publish_date')
+                    
+                    # Always preserve source_type as 'api' since article originated from API
+                    article['source_type'] = original_meta.get('source_type', 'api')
+                    
+                    # Preserve article_id from original API response
+                    if original_meta.get('article_id'):
+                        article['article_id'] = original_meta.get('article_id')
+                        
                 all_articles.extend(articles)
                 source_domain = session.get("source_domain", "unknown")
                 if source_domain not in source_domains:

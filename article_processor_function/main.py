@@ -389,7 +389,12 @@ class ArticleProcessor:
             # Field name normalization (raw -> ProcessedArticle)
             if 'url' in normalized and 'original_url' not in normalized:
                 normalized['original_url'] = normalized.pop('url')
-            # publish_date is now the standard field name
+            # Normalize published_at -> publish_date (scraper uses published_at, standard is publish_date)
+            if 'published_at' in normalized and 'publish_date' not in normalized:
+                normalized['publish_date'] = normalized.pop('published_at')
+            elif 'published_at' in normalized and normalized.get('publish_date'):
+                # If both exist, prefer publish_date and remove published_at
+                del normalized['published_at']
             # Ensure required fields have defaults
             normalized.setdefault('merged_from_urls', [])
             normalized.setdefault('summary', '')
