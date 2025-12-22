@@ -356,8 +356,9 @@ class ArticleProcessor:
 
         # Step 4: Save embeddings for future cross-run dedup
         article_ids = [a.get('article_id', '') for a in articles]
+        article_urls = [a.get('url', '') for a in articles]
         embeddings_path = f"{run_folder}/embeddings/{source_type}_embeddings.json"
-        self.deduplicator.save_embeddings(article_ids, embeddings, embeddings_path)
+        self.deduplicator.save_embeddings(article_ids, article_urls, embeddings, embeddings_path)
 
         # Step 5: Cross-run deduplication
         logger.info("Cross-run deduplication...")
