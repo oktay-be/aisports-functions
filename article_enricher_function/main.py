@@ -276,7 +276,7 @@ class ArticleEnricher:
         Returns:
             GCS URI of uploaded file
         """
-        # Prepare input data - language/region stored for recovery by jsonl_transformer (not sent to LLM)
+        # Prepare input data - passthrough fields stored for recovery by jsonl_transformer (not sent to LLM)
         llm_input = {
             "articles": [
                 {
@@ -287,10 +287,11 @@ class ArticleEnricher:
                     "merged_from_urls": a.get('merged_from_urls', []),
                     "source": a.get('source', ''),
                     "publish_date": a.get('publish_date', ''),
-                    # language/region preserved in input file for recovery during transform
-                    # (not included in LLM prompt/schema - passthrough fields)
+                    # Passthrough fields preserved in input file for recovery during transform
+                    # (not included in LLM prompt/schema - restored after enrichment)
                     "language": a.get('language') or a.get('lang') or '',
-                    "region": a.get('region') or ''
+                    "region": a.get('region') or '',
+                    "source_type": a.get('source_type', 'api')  # Preserve original source_type
                 }
                 for a in articles
             ]
