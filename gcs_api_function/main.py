@@ -100,7 +100,17 @@ def validate_api_key(request: Request) -> bool:
     if not api_key:
         return False
 
-    expected_key = access_secret(API_KEY_SECRET_ID)
+    # Check cache first to avoid Secret Manager calls on every request
+    cache_key = 'api_key'
+    cached = CACHE.get(cache_key)
+    
+    if cached and (datetime.now().timestamp() - cached['timestamp'] < CONFIG_CACHE_TTL_SECONDS):
+        expected_key = cached['data']
+    else:
+        expected_key = access_secret(API_KEY_SECRET_ID)
+        if expected_key:
+            CACHE[cache_key] = {'data': expected_key, 'timestamp': datetime.now().timestamp()}
+
     if not expected_key:
         logger.error("Could not retrieve API key from Secret Manager")
         return False
@@ -229,14 +239,14 @@ def error_response(message: str, status: int = 400):
 # ARTICLE FUNCTIONS
 # =============================================================================
 
-def get_cache_key(region: str, date: str) -> str:
-    """Generate cache key for region and date."""
-    return f"articles_{region}_{date}"
+def get_cache_key(date: str) -> str:
+    """Generate cache key for date."""
+    return f"articles_{date}"
 
 
-def get_cached_articles(region: str, date: str) -> Optional[List[Dict[str, Any]]]:
+def get_cached_articles(date: str) -> Optional[List[Dict[str, Any]]]:
     """Get cached articles if still valid."""
-    cache_key = get_cache_key(region, date)
+    cache_key = get_cache_key(date)
     entry = CACHE.get(cache_key)
 
     if not entry:
@@ -249,9 +259,9 @@ def get_cached_articles(region: str, date: str) -> Optional[List[Dict[str, Any]]
     return entry['articles']
 
 
-def set_cached_articles(region: str, date: str, articles: List[Dict[str, Any]]) -> None:
+def set_cached_articles(date: str, articles: List[Dict[str, Any]]) -> None:
     """Cache articles with timestamp."""
-    cache_key = get_cache_key(region, date)
+    cache_key = get_cache_key(date)
     CACHE[cache_key] = {
         'articles': articles,
         'timestamp': datetime.now().timestamp()
@@ -420,12 +430,12 @@ def handle_get_articles(request: Request):
 
     all_articles = []
     for date in dates_to_fetch:
-        cached = get_cached_articles(region, date)
+        cached = get_cached_articles(date)
         if cached is not None and not no_cache:
             all_articles.extend(cached)
         else:
             date_articles = fetch_articles_for_date(date)
-            set_cached_articles(region, date, date_articles)
+            set_cached_articles(date, date_articles)
             all_articles.extend(date_articles)
 
     unique_articles = deduplicate_articles(all_articles)
@@ -494,7 +504,7 @@ def handle_put_preferences(request: Request):
     email_hash = hash_email(user['email'])
     
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         
         bucket = storage_client.bucket(GCS_BUCKET_NAME)
         blob = bucket.blob(f'{USER_PREFERENCES_FOLDER}{email_hash}/preferences.json')
@@ -556,7 +566,7 @@ def handle_trigger_scraper(request: Request):
         return error_response('Invalid or missing token', 401)
 
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
 
         # Validate required fields (scraper requires urls, keywords, and region)
         if not data.get('urls'):
@@ -601,7 +611,7 @@ def handle_trigger_news_api(request: Request):
         return error_response('Invalid or missing token', 401)
     
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         
         payload = {
             'keywords': data.get('keywords', ['fenerbahce', 'galatasaray', 'tedesco']),

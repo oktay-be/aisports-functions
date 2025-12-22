@@ -162,3 +162,7 @@ gs://aisports-scraping/
 
 - **Full Plan**: See [pipeline_refactoring_plan.md](../pipeline_refactoring_plan.md)
 - **Vector Strategy ADR**: See [future_considerations/vector_management.md](future_considerations/vector_management.md)
+
+## Known Limitations
+
+- **Concurrency:** The `PUT /user/preferences` endpoint uses a read-modify-write pattern without locking. Concurrent updates from multiple clients may result in lost data.
