@@ -91,10 +91,10 @@ def validate_scraping_request(message_data: dict) -> tuple:
     if region not in VALID_REGIONS:
         return False, f"Invalid region '{region}'. Must be one of: {VALID_REGIONS}"
     
-    # Scrape depth validation
+    # Scrape depth validation (0 = just scrape URLs, no link discovery; >= 1 = discover links)
     scrape_depth = message_data.get('scrape_depth', 1)
-    if not isinstance(scrape_depth, int) or scrape_depth < 1:
-        return False, f"Invalid scrape_depth: {scrape_depth}. Must be a positive integer"
+    if not isinstance(scrape_depth, int) or scrape_depth < 0:
+        return False, f"Invalid scrape_depth: {scrape_depth}. Must be a non-negative integer"
     
     return True, ""
 
