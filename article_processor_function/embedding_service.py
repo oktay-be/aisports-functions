@@ -22,7 +22,7 @@ class EmbeddingService:
     Uses text-embedding-004 model optimized for semantic similarity tasks.
     """
 
-    BATCH_SIZE = 100  # API limit is ~250, using 100 for safety
+    BATCH_SIZE = 40  # Reduced from 100 to handle Turkish text's higher token density (~2.3x)
     MODEL = "text-embedding-004"
     MAX_BODY_LENGTH = 500  # First 500 characters of body to embed
 
