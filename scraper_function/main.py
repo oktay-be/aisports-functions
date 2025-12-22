@@ -55,6 +55,123 @@ GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 # JOURNALIST_LOG_LEVEL already defined above for logging configuration
 
+
+def normalize_publish_date(date_value) -> str:
+    """
+    Normalize publish_date to ISO 8601 format.
+    Handles various input formats from journalist library.
+    
+    Args:
+        date_value: Date string, datetime object, or None
+        
+    Returns:
+        ISO 8601 formatted string or empty string if invalid/missing
+    """
+    if not date_value:
+        return ''
+    
+    # Already a datetime object
+    if isinstance(date_value, datetime):
+        if date_value.tzinfo is None:
+            date_value = date_value.replace(tzinfo=timezone.utc)
+        return date_value.isoformat()
+    
+    # String input - try parsing common formats
+    if isinstance(date_value, str):
+        date_str = date_value.strip()
+        if not date_str:
+            return ''
+        
+        # Already in ISO format
+        if 'T' in date_str and ('+' in date_str or 'Z' in date_str or date_str.endswith('+00:00')):
+            return date_str
+        
+        # Try parsing various formats
+        formats_to_try = [
+            '%Y-%m-%dT%H:%M:%S.%f%z',  # ISO with microseconds and tz
+            '%Y-%m-%dT%H:%M:%S%z',      # ISO with tz
+            '%Y-%m-%dT%H:%M:%S.%f',     # ISO with microseconds, no tz
+            '%Y-%m-%dT%H:%M:%S',        # ISO without tz
+            '%Y-%m-%d %H:%M:%S',        # Common datetime format
+            '%Y-%m-%d',                  # Date only
+            '%d/%m/%Y %H:%M:%S',        # European format
+            '%d/%m/%Y',                  # European date only
+            '%m/%d/%Y %H:%M:%S',        # US format
+            '%m/%d/%Y',                  # US date only
+        ]
+        
+        for fmt in formats_to_try:
+            try:
+                parsed = datetime.strptime(date_str, fmt)
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.isoformat()
+            except ValueError:
+                continue
+        
+        # If all parsing fails, return original string (better than losing data)
+        logger.warning(f"Could not parse publish_date: {date_str}")
+        return date_str
+    
+    return ''
+
+
+def normalize_article_for_session_schema(article: dict, region: str, language: str, source_domain: str) -> dict:
+    """
+    Normalize article fields to match the session schema used by news_api_fetcher.
+    Ensures consistency between API-sourced and scraped articles.
+    
+    Args:
+        article: Raw article dict from journalist library
+        region: Region from Pub/Sub message ('eu' or 'tr')
+        language: Language code or empty string
+        source_domain: Source domain for the article
+        
+    Returns:
+        Normalized article dict matching session schema
+    """
+    from urllib.parse import urlparse
+    
+    url = article.get('url') or article.get('link') or article.get('original_url', '')
+    
+    # Extract domain if not provided
+    if not source_domain and url:
+        parsed = urlparse(url)
+        source_domain = parsed.netloc
+    
+    # Normalize body field (journalist may use 'content' or 'body')
+    body = article.get('body') or article.get('content', '')
+    
+    # Normalize publish_date
+    publish_date = normalize_publish_date(
+        article.get('publish_date') or article.get('published_at') or article.get('published_date')
+    )
+    
+    # Build normalized article
+    normalized = {
+        'url': url,
+        'scraped_at': article.get('scraped_at', datetime.now(timezone.utc).isoformat()),
+        'keywords_used': article.get('keywords_used', article.get('keywords_matched', [])),
+        'title': article.get('title', ''),
+        'body': body,
+        'publish_date': publish_date,
+        'source': source_domain,
+        'extraction_method': article.get('extraction_method', 'journalist'),
+        'source_type': 'scraped',
+        'site': source_domain,
+        'article_id': article.get('article_id', generate_article_id(url) if url else ''),
+        'language': language,
+        'region': region,
+    }
+    
+    # Preserve any additional fields from journalist that might be useful
+    for key in ['author', 'description', 'image_url', 'meta_description']:
+        if key in article and article[key]:
+            normalized[key] = article[key]
+    
+    return normalized
+
+
 def is_first_run_of_day(storage_client, bucket_name, date_obj, region="eu"):
     """
     Check if this is the first run of the day by checking if the batch_processing folder exists for today.
@@ -207,6 +324,11 @@ async def _process_scraping_request(message_data: dict):
     persist = message_data.get("persist", True)  # Default to True if not provided
     log_level = message_data.get("log_level", JOURNALIST_LOG_LEVEL)  # Use payload log_level or env var
     region = message_data.get("region", "eu")  # Default to "eu" if not provided
+    # Validate region
+    valid_regions = ['eu', 'tr']
+    if region not in valid_regions:
+        logger.warning(f"Unknown region '{region}', defaulting to 'eu'")
+        region = 'eu'
     triggered_by = message_data.get("triggered_by", "system")  # Track who triggered the scrape
 
     # API Integration mode (for News API incomplete articles)
@@ -453,7 +575,10 @@ async def _process_scraping_request(message_data: dict):
         for i, session in enumerate(source_sessions):
             logger.info(f"Processing session {i+1}/{len(source_sessions)}")
             
-            # Deduplicate articles
+            # Get source_domain early for normalization
+            source_domain_raw = session.get("source_domain", "unknown_source")
+            
+            # Deduplicate and normalize articles
             articles = session.get("articles", [])
             unique_articles = []
             dropped_articles = []
@@ -464,27 +589,28 @@ async def _process_scraping_request(message_data: dict):
                 if url and url in processed_urls:
                     dropped_articles.append(article)
                 else:
-                    # Generate unique article ID based on URL
-                    if url:
-                        article["article_id"] = generate_article_id(url)
-                    # Add language and region based on the scraper's region parameter
-                    if 'language' not in article or not article.get('language'):
-                        article['language'] = language_for_region
-                    if 'region' not in article or not article.get('region'):
-                        article['region'] = region
-                    unique_articles.append(article)
+                    # Normalize article to session schema (handles all field mapping)
+                    normalized_article = normalize_article_for_session_schema(
+                        article=article,
+                        region=region,
+                        language=language_for_region,
+                        source_domain=source_domain_raw
+                    )
+                    unique_articles.append(normalized_article)
                     if url:
                         processed_urls.add(url)
             
             if dropped_articles:
                 logger.info(f"Dropped {len(dropped_articles)} duplicate articles for session {i+1}")
-                session["articles"] = unique_articles
-                # We do not store the dropped articles to keep the file size small
-                session["articles_count"] = len(unique_articles)
+            
+            # Update session with deduplicated and normalized articles
+            session["articles"] = unique_articles
+            session["articles_count"] = len(unique_articles)
+            if dropped_articles:
                 session["dropped_articles_count"] = len(dropped_articles)
             
             # Check if there are any articles left after deduplication
-            if not session.get("articles"):
+            if not unique_articles:
                 logger.warning(f"No articles found for session {i+1} (source: {session.get('source_domain', 'unknown')}) after deduplication. Skipping storage.")
                 continue
 
