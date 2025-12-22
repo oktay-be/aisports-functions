@@ -331,8 +331,21 @@ async def _process_scraping_request(message_data: dict):
         region = 'eu'
     triggered_by = message_data.get("triggered_by", "system")  # Track who triggered the scrape
 
+    # Generate Run ID for this execution (HH-MM-SS format in CET)
+    run_id = datetime.now(CET).strftime('%H-%M-%S')
+    logger.info(f"Generated Run ID: {run_id}")
+
     # API Integration mode (for News API incomplete articles)
     api_run_path = message_data.get("api_run_path")  # e.g., "news_data/api/2025-12/2025-12-17/run_10-59-06"
+    
+    # If no api_run_path (standalone mode), generate one to match ingestion structure
+    is_standalone = False
+    if not api_run_path:
+        current_date = datetime.now(CET).strftime('%Y-%m-%d')
+        api_run_path = f"ingestion/{current_date}/{run_id}"
+        is_standalone = True
+        logger.info(f"Standalone mode: Generated run path {api_run_path}")
+
     output_filename = message_data.get("output_filename", "articles_scraped.json")  # e.g., "articles_scraped_tr.json"
 
     if not urls or not keywords:
@@ -356,9 +369,7 @@ async def _process_scraping_request(message_data: dict):
         start_time = datetime.now(timezone.utc)
         logger.info(f"Scraping started at: {start_time.isoformat()}")
 
-        # Generate Run ID for this execution (HH-MM-SS format in CET)
-        run_id = datetime.now(CET).strftime('%H-%M-%S')
-        logger.info(f"Generated Run ID: {run_id}")
+        # Run ID already generated above
         
         # Perform scraping with enhanced logging
         logger.info("Starting scraping operation...")
@@ -399,16 +410,18 @@ async def _process_scraping_request(message_data: dict):
             logger.info(f"source_sessions[{i}][\"source_domain\"] = {source_domain}")
         logger.info("=== END SOURCE DOMAINS ===")
 
-        # API Integration mode: Save scraped articles
+        # API Integration mode (or Standalone mode mimicking API structure)
+        # We now always use this path for unified behavior
         if api_run_path:
-            logger.info(f"API integration mode detected: saving to {api_run_path}/scraped_incomplete_articles.json")
+            logger.info(f"Saving to {api_run_path} (Standalone: {is_standalone})")
 
             # Read to_scrape.json to get original metadata for each URL
             # This preserves API-derived fields like publish_date, source_type, article_id
             url_metadata = {}  # url -> {language, region, publish_date, source_type, article_id}
             to_scrape_path = f"{api_run_path}/to_scrape.json"
             
-            if ENVIRONMENT != 'local' and storage_client:
+            # Only try to read to_scrape.json if NOT standalone (it won't exist for standalone)
+            if not is_standalone and ENVIRONMENT != 'local' and storage_client:
                 try:
                     bucket = storage_client.bucket(GCS_BUCKET_NAME)
                     blob = bucket.blob(to_scrape_path)
@@ -452,11 +465,15 @@ async def _process_scraping_request(message_data: dict):
                         article['published_at'] = original_meta.get('publish_date')
                     
                     # Always preserve source_type as 'api' since article originated from API
-                    article['source_type'] = original_meta.get('source_type', 'api')
+                    # For standalone, default to 'scraped'
+                    article['source_type'] = original_meta.get('source_type', 'scraped' if is_standalone else 'api')
                     
                     # Preserve article_id from original API response
                     if original_meta.get('article_id'):
                         article['article_id'] = original_meta.get('article_id')
+                    elif is_standalone and not article.get('article_id'):
+                        # Generate article_id for standalone scraped articles if missing
+                        article['article_id'] = generate_article_id(url)
                         
                 all_articles.extend(articles)
                 source_domain = session.get("source_domain", "unknown")
@@ -465,24 +482,26 @@ async def _process_scraping_request(message_data: dict):
 
             # Prepare upload data in session schema format
             upload_data = {
-                'source_domain': 'api_combined',
-                'source_url': 'https://api-news-aggregator',
+                'source_domain': 'scraped_combined' if is_standalone else 'api_combined',
+                'source_url': 'https://scraper-standalone' if is_standalone else 'https://api-news-aggregator',
                 'articles': all_articles,
                 'session_metadata': {
-                    'session_id': f"api_scraper_{run_id}",
+                    'session_id': f"scraper_{run_id}",
                     'scraped_at': datetime.now(timezone.utc).isoformat(),
                     'source_domains': source_domains,
                     'source_count': len(source_domains),
                     'extraction_method': 'journalist',
                     'triggered_by': triggered_by,
-                    'api_integration': True
+                    'api_integration': not is_standalone
                 }
             }
 
             logger.info(f"Merged {len(all_articles)} articles from {len(source_sessions)} sessions ({len(source_domains)} sources)")
 
-            # Upload to GCS (same level as complete_articles.json)
-            scraped_file_path = f"{api_run_path}/scraped_incomplete_articles.json"
+            # Upload to GCS
+            # For standalone, use scraped_articles.json to distinguish from incomplete flow
+            filename = "scraped_articles.json" if is_standalone else "scraped_incomplete_articles.json"
+            scraped_file_path = f"{api_run_path}/{filename}"
 
             if ENVIRONMENT != 'local':
                 try:
@@ -502,39 +521,44 @@ async def _process_scraping_request(message_data: dict):
             # Extract run_id from api_run_path (e.g., "ingestion/api/2025-12-19/14-15-14" -> "14-15-14")
             api_run_id = api_run_path.split('/')[-1] if '/' in api_run_path else run_id
 
-            # Publish to SESSION_DATA_CREATED_TOPIC with both scraped and complete articles
-            complete_file_path = f"{api_run_path}/complete_articles.json"
+            # Publish to SESSION_DATA_CREATED_TOPIC
+            
+            success_messages_list = [
+                {
+                    'status': 'success',
+                    'gcs_path': f"gs://{GCS_BUCKET_NAME}/{scraped_file_path}",
+                    'source_domain': 'scraped' if is_standalone else 'api_scraped',
+                    'articles_count': len(all_articles),
+                    'triggered_by': triggered_by,
+                    'processed_at': datetime.now(timezone.utc).isoformat()
+                }
+            ]
+            
+            # Only include complete_articles if NOT standalone
+            if not is_standalone:
+                complete_file_path = f"{api_run_path}/complete_articles.json"
+                success_messages_list.append({
+                    'status': 'success',
+                    'gcs_path': f"gs://{GCS_BUCKET_NAME}/{complete_file_path}",
+                    'source_domain': 'api_complete',
+                    'triggered_by': triggered_by,
+                    'processed_at': datetime.now(timezone.utc).isoformat()
+                })
 
             batch_message = {
                 'status': 'batch_success',
                 'run_id': api_run_id,
-                'batch_size': 2,
-                'success_messages': [
-                    {
-                        'status': 'success',
-                        'gcs_path': f"gs://{GCS_BUCKET_NAME}/{scraped_file_path}",
-                        'source_domain': 'api_scraped',
-                        'articles_count': len(all_articles),
-                        'triggered_by': triggered_by,
-                        'processed_at': datetime.now(timezone.utc).isoformat()
-                    },
-                    {
-                        'status': 'success',
-                        'gcs_path': f"gs://{GCS_BUCKET_NAME}/{complete_file_path}",
-                        'source_domain': 'api_complete',
-                        'triggered_by': triggered_by,
-                        'processed_at': datetime.now(timezone.utc).isoformat()
-                    }
-                ],
+                'batch_size': len(success_messages_list),
+                'success_messages': success_messages_list,
                 'batch_processed_at': datetime.now(timezone.utc).isoformat(),
                 'total_articles': len(all_articles)
             }
 
             if ENVIRONMENT != 'local':
                 try:
-                    logger.info(f"Publishing batch message to SESSION_DATA_CREATED_TOPIC with 2 files:")
-                    logger.info(f"  1. {scraped_file_path} ({len(all_articles)} articles)")
-                    logger.info(f"  2. {complete_file_path}")
+                    logger.info(f"Publishing batch message to SESSION_DATA_CREATED_TOPIC with {len(success_messages_list)} files:")
+                    for msg in success_messages_list:
+                        logger.info(f"  - {msg['gcs_path']}")
 
                     topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
                     future = publisher.publish(topic_path, json.dumps(batch_message).encode("utf-8"))
@@ -548,7 +572,7 @@ async def _process_scraping_request(message_data: dict):
                 logger.info(f"Local mode: Would publish batch message to SESSION_DATA_CREATED_TOPIC")
                 logger.info(f"Message: {json.dumps(batch_message, indent=2)}")
 
-            logger.info("API integration mode: Batch processing triggered. Exiting.")
+            logger.info("Batch processing completed. Exiting.")
             return
 
         # Initialize list to accumulate success messages for batch publishing
