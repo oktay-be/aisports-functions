@@ -454,19 +454,19 @@ async def _process_scraping_request(message_data: dict):
                     url = article.get('url') or article.get('original_url', '')
                     original_meta = url_metadata.get(url, {})
                     
-                    # Preserve language and region
-                    if 'language' not in article or not article.get('language'):
-                        article['language'] = original_meta.get('language', '')
-                    if 'region' not in article or not article.get('region'):
-                        article['region'] = original_meta.get('region', 'eu')
-                    
+                    # Set language to empty string for scraped articles (scraper doesn't have language info like API)
+                    article['language'] = ''
+
+                    # Set region from Pub/Sub message
+                    article['region'] = region
+
                     # Preserve publish_date from API if scraper didn't extract one
                     if not article.get('published_at') and original_meta.get('publish_date'):
                         article['published_at'] = original_meta.get('publish_date')
-                    
-                    # Always preserve source_type as 'api' since article originated from API
-                    # For standalone, default to 'scraped'
-                    article['source_type'] = original_meta.get('source_type', 'scraped' if is_standalone else 'api')
+
+                    # source_type is always 'scraped' for articles processed by scraper
+                    # Allowed values: 'api' | 'scraped'
+                    article['source_type'] = 'scraped'
                     
                     # Preserve article_id from original API response
                     if original_meta.get('article_id'):
@@ -497,6 +497,31 @@ async def _process_scraping_request(message_data: dict):
             }
 
             logger.info(f"Merged {len(all_articles)} articles from {len(source_sessions)} sessions ({len(source_domains)} sources)")
+
+            # For standalone runs, create metadata.json to match API-triggered structure
+            if is_standalone and ENVIRONMENT != 'local':
+                try:
+                    metadata = {
+                        'triggered_by': triggered_by,
+                        'keywords': keywords,
+                        'urls_count': len(urls),
+                        'articles_count': len(all_articles),
+                        'source_domains': source_domains,
+                        'api_sources_used': [],  # Empty for standalone
+                        'started_at': start_time.isoformat(),
+                        'completed_at': datetime.now(timezone.utc).isoformat(),
+                        'is_standalone': True
+                    }
+                    metadata_path = f"{api_run_path}/metadata.json"
+                    bucket = storage_client.bucket(GCS_BUCKET_NAME)
+                    blob = bucket.blob(metadata_path)
+                    blob.upload_from_string(
+                        json.dumps(metadata, indent=2, ensure_ascii=False),
+                        content_type='application/json'
+                    )
+                    logger.info(f"✓ Saved metadata to gs://{GCS_BUCKET_NAME}/{metadata_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to save metadata.json: {e}")
 
             # Upload to GCS
             # For standalone, use scraped_articles.json to distinguish from incomplete flow
@@ -593,8 +618,8 @@ async def _process_scraping_request(message_data: dict):
 
         # Process each session
         # In non-API mode (direct scraper trigger), use the region parameter
-        # language is set based on region: 'tr' -> 'tr', others -> empty
-        language_for_region = 'tr' if region == 'tr' else ''
+        # language is empty string for scraped articles (scraper doesn't have language info like API)
+        language_for_region = ''
         
         for i, session in enumerate(source_sessions):
             logger.info(f"Processing session {i+1}/{len(source_sessions)}")

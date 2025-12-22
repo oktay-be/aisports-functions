@@ -1,4 +1,4 @@
-name: Deploy Article API Function
+name: Deploy GCS API Function
 
 on:
   push:
@@ -6,8 +6,8 @@ on:
       - main
       - dev
     paths:
-      - 'article_api_function/**'
-      - '.github/workflows/deploy-article-api-function.yml'
+      - 'gcs_api_function/**'
+      - '.github/workflows/deploy-gcs-api-function.yml'
   workflow_dispatch:
 
 permissions:
@@ -37,10 +37,10 @@ jobs:
     - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v3
       with:
-        name: article-api
+        name: gcs-api
         runtime: python312
         region: ${{ vars.REGION }}
-        source_dir: article_api_function
+        source_dir: gcs_api_function
         entry_point: main
         # HTTP trigger (not event-based)
         https_trigger_security_level: secure_always
@@ -59,7 +59,7 @@ jobs:
 
     - name: Allow unauthenticated access
       run: |
-        gcloud run services add-iam-policy-binding article-api \
+        gcloud run services add-iam-policy-binding gcs-api \
           --region=${{ vars.REGION }} \
           --member="allUsers" \
           --role="roles/run.invoker"
