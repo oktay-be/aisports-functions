@@ -55,6 +55,143 @@ GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 # JOURNALIST_LOG_LEVEL already defined above for logging configuration
 
+# =============================================================================
+# CONSTANTS
+# =============================================================================
+
+# Valid regions for scraping
+VALID_REGIONS = {'eu', 'tr'}
+
+# Output file names
+OUTPUT_FILE_API_TRIGGERED = 'scraped_incomplete_articles.json'
+OUTPUT_FILE_STANDALONE = 'scraped_articles.json'
+
+
+# =============================================================================
+# INPUT VALIDATION
+# =============================================================================
+
+def validate_scraping_request(message_data: dict) -> tuple:
+    """
+    Validate Pub/Sub message payload.
+    
+    Args:
+        message_data: The decoded Pub/Sub message
+        
+    Returns:
+        Tuple of (is_valid: bool, error_message: str)
+    """
+    # Required fields
+    urls = message_data.get('urls', [])
+    if not urls or not isinstance(urls, list):
+        return False, "Missing or invalid 'urls' field - must be a non-empty list"
+    
+    # Region validation
+    region = message_data.get('region', 'eu')
+    if region not in VALID_REGIONS:
+        return False, f"Invalid region '{region}'. Must be one of: {VALID_REGIONS}"
+    
+    # Scrape depth validation
+    scrape_depth = message_data.get('scrape_depth', 1)
+    if not isinstance(scrape_depth, int) or scrape_depth < 1:
+        return False, f"Invalid scrape_depth: {scrape_depth}. Must be a positive integer"
+    
+    return True, ""
+
+
+# =============================================================================
+# METADATA HELPERS
+# =============================================================================
+
+def load_article_metadata_from_gcs(bucket_name: str, api_run_path: str) -> dict:
+    """
+    Load article metadata from to_scrape.json.
+    
+    Returns empty dict if file doesn't exist (standalone mode) or on error.
+    This allows the same code path for both API-triggered and standalone scenarios.
+    
+    Args:
+        bucket_name: GCS bucket name
+        api_run_path: Path to the run folder (e.g., "ingestion/2025-12-22/16-37-43")
+        
+    Returns:
+        Dict mapping URL -> metadata dict with keys: language, region, publish_date, source_type, article_id
+    """
+    url_metadata = {}
+    
+    if ENVIRONMENT == 'local' or not storage_client:
+        return url_metadata
+    
+    to_scrape_path = f"{api_run_path}/to_scrape.json"
+    
+    try:
+        bucket = storage_client.bucket(bucket_name)
+        blob = bucket.blob(to_scrape_path)
+        
+        if not blob.exists():
+            logger.info(f"No to_scrape.json found at {to_scrape_path} (standalone mode)")
+            return url_metadata
+        
+        to_scrape_data = json.loads(blob.download_as_string())
+        for article in to_scrape_data.get('articles', []):
+            url = article.get('url')
+            if url:
+                url_metadata[url] = {
+                    'language': article.get('language', ''),
+                    'region': article.get('region', 'eu'),
+                    'publish_date': article.get('publish_date'),
+                    'source_type': article.get('source_type', 'api'),
+                    'article_id': article.get('article_id'),
+                }
+        
+        logger.info(f"Loaded metadata for {len(url_metadata)} URLs from to_scrape.json")
+        
+    except Exception as e:
+        logger.warning(f"Could not read to_scrape.json: {e}")
+    
+    return url_metadata
+
+
+def apply_metadata_to_articles(articles: list, url_metadata: dict, fallback_region: str) -> list:
+    """
+    Apply preserved metadata to scraped articles.
+    
+    For API-triggered runs: Uses metadata from to_scrape.json (language, region, article_id, publish_date)
+    For standalone runs: Uses fallback_region, generates article_id, language is empty
+    
+    Args:
+        articles: List of scraped article dicts
+        url_metadata: Dict mapping URL -> metadata (from load_article_metadata_from_gcs)
+        fallback_region: Region to use if not found in metadata (from Pub/Sub message)
+        
+    Returns:
+        Modified articles list with metadata applied
+    """
+    for article in articles:
+        url = article.get('url') or article.get('original_url', '')
+        meta = url_metadata.get(url, {})
+        
+        if meta:
+            # API-triggered: preserve original metadata from to_scrape.json
+            article['language'] = meta.get('language', '')
+            article['region'] = meta.get('region', fallback_region)
+            article['article_id'] = meta.get('article_id') or generate_article_id(url)
+            # Preserve publish_date from API if scraper didn't extract one
+            if not article.get('published_at') and meta.get('publish_date'):
+                article['published_at'] = meta.get('publish_date')
+            # Preserve source_type from API (should remain 'api' for API-triggered articles)
+            article['source_type'] = meta.get('source_type', 'api')
+        else:
+            # Standalone: use fallbacks
+            article['language'] = ''
+            article['region'] = fallback_region
+            if not article.get('article_id'):
+                article['article_id'] = generate_article_id(url) if url else ''
+            # Standalone articles are truly scraped (not from API)
+            article['source_type'] = 'scraped'
+    
+    return articles
+
 
 def normalize_publish_date(date_value) -> str:
     """
@@ -318,38 +455,46 @@ async def _process_scraping_request(message_data: dict):
         message_data (dict): Dictionary containing 'urls', 'keywords', and optionally 'scrape_depth', 'persist'
     """
     logger.info(f"Received scraping request: {message_data}")
+    
+    # ==========================================================================
+    # INPUT VALIDATION
+    # ==========================================================================
+    is_valid, error_msg = validate_scraping_request(message_data)
+    if not is_valid:
+        logger.error(f"Invalid scraping request: {error_msg}")
+        return
+    
+    # Extract and validate parameters
     urls = message_data.get("urls")
     keywords = message_data.get("keywords")
-    scrape_depth = message_data.get("scrape_depth", 1)  # Default to 1 if not provided
-    persist = message_data.get("persist", True)  # Default to True if not provided
-    log_level = message_data.get("log_level", JOURNALIST_LOG_LEVEL)  # Use payload log_level or env var
-    region = message_data.get("region", "eu")  # Default to "eu" if not provided
-    # Validate region
-    valid_regions = ['eu', 'tr']
-    if region not in valid_regions:
-        logger.warning(f"Unknown region '{region}', defaulting to 'eu'")
-        region = 'eu'
-    triggered_by = message_data.get("triggered_by", "system")  # Track who triggered the scrape
+    scrape_depth = message_data.get("scrape_depth", 1)
+    persist = message_data.get("persist", True)
+    log_level = message_data.get("log_level", JOURNALIST_LOG_LEVEL)
+    region = message_data.get("region", "eu")
+    triggered_by = message_data.get("triggered_by", "system")
 
     # Generate Run ID for this execution (HH-MM-SS format in CET)
     run_id = datetime.now(CET).strftime('%H-%M-%S')
     logger.info(f"Generated Run ID: {run_id}")
 
-    # API Integration mode (for News API incomplete articles)
-    api_run_path = message_data.get("api_run_path")  # e.g., "news_data/api/2025-12/2025-12-17/run_10-59-06"
+    # ==========================================================================
+    # DETERMINE MODE: API-TRIGGERED vs STANDALONE
+    # ==========================================================================
+    api_run_path = message_data.get("api_run_path")  # e.g., "ingestion/2025-12-22/16-37-43"
     
-    # If no api_run_path (standalone mode), generate one to match ingestion structure
-    is_standalone = False
-    if not api_run_path:
+    is_standalone = not api_run_path
+    if is_standalone:
         current_date = datetime.now(CET).strftime('%Y-%m-%d')
         api_run_path = f"ingestion/{current_date}/{run_id}"
-        is_standalone = True
         logger.info(f"Standalone mode: Generated run path {api_run_path}")
+    else:
+        logger.info(f"API-triggered mode: Using run path {api_run_path}")
 
-    output_filename = message_data.get("output_filename", "articles_scraped.json")  # e.g., "articles_scraped_tr.json"
+    # Determine output filename based on mode
+    output_filename = OUTPUT_FILE_STANDALONE if is_standalone else OUTPUT_FILE_API_TRIGGERED
 
-    if not urls or not keywords:
-        logger.error("Missing 'urls' or 'keywords' in the request.")
+    if not keywords:
+        logger.error("Missing 'keywords' in the request.")
         return
 
     if not JOURNALIST_AVAILABLE:
@@ -415,65 +560,25 @@ async def _process_scraping_request(message_data: dict):
         if api_run_path:
             logger.info(f"Saving to {api_run_path} (Standalone: {is_standalone})")
 
-            # Read to_scrape.json to get original metadata for each URL
-            # This preserves API-derived fields like publish_date, source_type, article_id
-            url_metadata = {}  # url -> {language, region, publish_date, source_type, article_id}
-            to_scrape_path = f"{api_run_path}/to_scrape.json"
-            
-            # Only try to read to_scrape.json if NOT standalone (it won't exist for standalone)
-            if not is_standalone and ENVIRONMENT != 'local' and storage_client:
-                try:
-                    bucket = storage_client.bucket(GCS_BUCKET_NAME)
-                    blob = bucket.blob(to_scrape_path)
-                    if blob.exists():
-                        to_scrape_data = json.loads(blob.download_as_string())
-                        for article in to_scrape_data.get('articles', []):
-                            url = article.get('url')
-                            if url:
-                                url_metadata[url] = {
-                                    'language': article.get('language', ''),
-                                    'region': article.get('region', 'eu'),
-                                    'publish_date': article.get('publish_date'),
-                                    'source_type': article.get('source_type', 'api'),
-                                    'article_id': article.get('article_id'),
-                                }
-                        logger.info(f"Loaded metadata for {len(url_metadata)} URLs from to_scrape.json (including publish_date, source_type)")
-                    else:
-                        logger.warning(f"to_scrape.json not found at {to_scrape_path}")
-                except Exception as e:
-                    logger.warning(f"Could not read to_scrape.json: {e}")
+            # ==========================================================================
+            # LOAD METADATA FROM to_scrape.json (API-triggered only)
+            # ==========================================================================
+            # For API-triggered runs, load metadata from to_scrape.json to preserve
+            # original API-derived fields (language, region, publish_date, article_id)
+            # For standalone runs, this returns empty dict (no to_scrape.json exists)
+            url_metadata = load_article_metadata_from_gcs(GCS_BUCKET_NAME, api_run_path) if not is_standalone else {}
 
-            # Merge all sessions into single list of articles
+            # ==========================================================================
+            # MERGE SESSIONS AND APPLY METADATA
+            # ==========================================================================
             all_articles = []
             source_domains = []
 
             for session in source_sessions:
                 articles = session.get("articles", [])
-                # Apply original metadata from to_scrape.json to preserve API-derived fields
-                for article in articles:
-                    url = article.get('url') or article.get('original_url', '')
-                    original_meta = url_metadata.get(url, {})
-                    
-                    # Preserve language from API if available (from to_scrape.json), otherwise empty string
-                    article['language'] = original_meta.get('language', '')
-
-                    # Preserve region from API if available (from to_scrape.json), otherwise use Pub/Sub message region
-                    article['region'] = original_meta.get('region', region)
-
-                    # Preserve publish_date from API if scraper didn't extract one
-                    if not article.get('published_at') and original_meta.get('publish_date'):
-                        article['published_at'] = original_meta.get('publish_date')
-
-                    # source_type is always 'scraped' for articles processed by scraper
-                    # Allowed values: 'api' | 'scraped'
-                    article['source_type'] = 'scraped'
-                    
-                    # Preserve article_id from original API response
-                    if original_meta.get('article_id'):
-                        article['article_id'] = original_meta.get('article_id')
-                    elif is_standalone and not article.get('article_id'):
-                        # Generate article_id for standalone scraped articles if missing
-                        article['article_id'] = generate_article_id(url)
+                
+                # Apply metadata from to_scrape.json (or fallbacks for standalone)
+                apply_metadata_to_articles(articles, url_metadata, fallback_region=region)
                         
                 all_articles.extend(articles)
                 source_domain = session.get("source_domain", "unknown")
@@ -600,187 +705,9 @@ async def _process_scraping_request(message_data: dict):
             logger.info("Batch processing completed. Exiting.")
             return
 
-        # Initialize list to accumulate success messages for batch publishing
-        success_messages = []
-        
-        # Fetch processed URLs for deduplication
-        processed_urls = set()
-        if ENVIRONMENT != 'local':
-            # Check if this is the first run of the day
-            first_run = is_first_run_of_day(storage_client, GCS_BUCKET_NAME, start_time, region)
-            
-            if first_run:
-                logger.info("First run of the day detected - scanning last 7 days for deduplication")
-                processed_urls = get_processed_urls_last_n_days(storage_client, GCS_BUCKET_NAME, start_time, region, days=7)
-            else:
-                logger.info("Subsequent run - scanning only today's data for deduplication")
-                processed_urls = get_processed_urls_for_date(storage_client, GCS_BUCKET_NAME, start_time, region)
-
-        # Process each session
-        # In non-API mode (direct scraper trigger), use the region parameter
-        # language is empty string for scraped articles (scraper doesn't have language info like API)
-        language_for_region = ''
-        
-        for i, session in enumerate(source_sessions):
-            logger.info(f"Processing session {i+1}/{len(source_sessions)}")
-            
-            # Get source_domain early for normalization
-            source_domain_raw = session.get("source_domain", "unknown_source")
-            
-            # Deduplicate and normalize articles
-            articles = session.get("articles", [])
-            unique_articles = []
-            dropped_articles = []
-            
-            for article in articles:
-                # Check various common fields for URL
-                url = article.get("url") or article.get("link") or article.get("original_url")
-                if url and url in processed_urls:
-                    dropped_articles.append(article)
-                else:
-                    # Normalize article to session schema (handles all field mapping)
-                    normalized_article = normalize_article_for_session_schema(
-                        article=article,
-                        region=region,
-                        language=language_for_region,
-                        source_domain=source_domain_raw
-                    )
-                    unique_articles.append(normalized_article)
-                    if url:
-                        processed_urls.add(url)
-            
-            if dropped_articles:
-                logger.info(f"Dropped {len(dropped_articles)} duplicate articles for session {i+1}")
-            
-            # Update session with deduplicated and normalized articles
-            session["articles"] = unique_articles
-            session["articles_count"] = len(unique_articles)
-            if dropped_articles:
-                session["dropped_articles_count"] = len(dropped_articles)
-            
-            # Check if there are any articles left after deduplication
-            if not unique_articles:
-                logger.warning(f"No articles found for session {i+1} (source: {session.get('source_domain', 'unknown')}) after deduplication. Skipping storage.")
-                continue
-
-            # Extract domain from session or URL and make it filesystem-safe
-            from werkzeug.utils import secure_filename
-            source_domain = session.get("source_domain", "unknown_source")
-            if not source_domain or source_domain == "unknown_source":
-                logger.error(f"No valid source_domain found for session {i+1}")
-                continue  # Skip this session
-            else:
-                # Make it filesystem-safe and convert dots to underscores
-                source_domain = secure_filename(source_domain).replace(".", "_") or "unknown_source"
-            
-            # Get session ID or create one
-            session_id = session.get("session_metadata", {}).get("session_id", f"session_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}")
-            
-            # Log session details
-            articles_count = session.get("articles_count", 0)
-            logger.info(f"Session {i+1} details:")
-            logger.info(f"  - Source domain: {source_domain}")
-            logger.info(f"  - Session ID: {session_id}")
-            logger.info(f"  - Articles count: {articles_count}")
-            
-            # Construct GCS path based on new structure
-            current_year_month = start_time.strftime("%Y-%m")
-            current_date = start_time.strftime("%Y-%m-%d")
-            
-            # New structure: news_data/sources/{region}/{YYYY-MM}/{YYYY-MM-DD}/{source_domain}/session_data_{source_domain}_{session_id}.json
-            gcs_object_path = f"{NEWS_DATA_ROOT_PREFIX}sources/{region}/{current_year_month}/{current_date}/{source_domain}/session_data_{source_domain}_{session_id}.json"
-
-            if ENVIRONMENT == 'local':                
-                # Create success message for batch processing
-                success_message = {
-                    "status": "success",
-                    "run_id": run_id,
-                    "source_domain": source_domain,
-                    "session_id": session_id,
-                    "date_path": current_date,
-                    "articles_count": articles_count,
-                    "keywords": keywords,
-                    "scrape_depth": scrape_depth,
-                    "persist": persist,
-                    "triggered_by": triggered_by,
-                    "processed_at": datetime.now(timezone.utc).isoformat()
-                }
-                success_messages.append(success_message)
-                logger.info(f"Local processing success message added to batch: {json.dumps(success_message, indent=2)}")
-                
-            else:                    
-                # Cloud environment: Upload to GCS and publish message
-                logger.info(f"Uploading to GCS: gs://{GCS_BUCKET_NAME}/{gcs_object_path}")
-                bucket = storage_client.bucket(GCS_BUCKET_NAME)
-                blob = bucket.blob(gcs_object_path)
-                # blob.upload_from_string(json.dumps(session, indent=2, ensure_ascii=False), content_type='application/json')
-
-                # Write session data to tmp file
-                tmp_file_path = Path(f"/tmp/session_data_{source_domain}_{session_id}.json")
-                with open(tmp_file_path, 'w', encoding='utf-8') as f:
-                    json.dump(session, f, indent=2, ensure_ascii=False)
-                logger.info(f"Session data written to {tmp_file_path}")
-                  # Upload from file
-                blob.upload_from_filename(str(tmp_file_path), content_type='application/json')
-                logger.info(f"Successfully uploaded to GCS")
-                logger.info(f"File persisted at: ")
-                
-                # Create success message for batch processing
-                success_message = {
-                    "status": "success",
-                    "run_id": run_id,
-                    "gcs_path": f"gs://{GCS_BUCKET_NAME}/{gcs_object_path}",
-                    "source_domain": source_domain,
-                    "session_id": session_id,
-                    "date_path": current_date,
-                    "articles_count": articles_count,
-                    "keywords": keywords,
-                    "scrape_depth": scrape_depth,
-                    "persist": persist,
-                    "triggered_by": triggered_by,
-                    "processed_at": datetime.now(timezone.utc).isoformat()
-                }
-                success_messages.append(success_message)
-                logger.info(f"Cloud processing success message added to batch for session {session_id}")
-
-        # After processing all sessions, publish accumulated success messages as a batch
-        if success_messages:
-            logger.info(f"=== BATCH PUBLISHING {len(success_messages)} SUCCESS MESSAGES ===")
-            
-            if ENVIRONMENT == 'local':
-                logger.info("Local environment: Batch success messages summary:")
-                for i, msg in enumerate(success_messages):
-                    logger.info(f"  Message {i+1}: {msg['source_domain']} - {msg['session_id']} ({msg['articles_count']} articles)")
-                logger.info(f"Total success messages in batch: {len(success_messages)}")
-            else:
-                try:
-                    # Create batch message containing all success messages
-                    batch_message = {
-                        "status": "batch_success",
-                        "run_id": run_id,
-                        "batch_size": len(success_messages),
-                        "success_messages": success_messages,
-                        "batch_processed_at": datetime.now(timezone.utc).isoformat(),
-                        "total_articles": sum(msg.get("articles_count", 0) for msg in success_messages)
-                    }
-                    
-                    logger.info(f"Publishing batch success message with {len(success_messages)} individual messages")
-                    topic_path = publisher.topic_path(PROJECT_ID, SESSION_DATA_CREATED_TOPIC)
-                    future = publisher.publish(topic_path, json.dumps(batch_message).encode("utf-8"))
-                    future.result()  # Wait for publish to complete
-                    logger.info(f"Successfully published batch message with {len(success_messages)} success messages")
-                    logger.info(f"Total articles in batch: {batch_message['total_articles']}")
-                    
-                except Exception as pub_error:
-                    logger.error(f"Failed to publish batch success message: {pub_error}")
-        else:
-            logger.warning("No success messages to publish in batch")
-
-        logger.info(f"=== SCRAPING PROCESS COMPLETED SUCCESSFULLY ===")
-        logger.info(f"Total sessions processed: {len(source_sessions)}")        
-        # Log total elapsed time for the entire process
-        total_elapsed_time = datetime.now(timezone.utc) - start_time
-        logger.info(f"Total elapsed time: {total_elapsed_time.total_seconds():.2f} seconds")
+        # NOTE: If we reach here, api_run_path was falsy which shouldn't happen
+        # since we generate one for standalone mode. This is a safety net.
+        logger.error("Unexpected code path: api_run_path is falsy after initialization")
 
     except Exception as e:
         logger.error(f"An error occurred during scraping: {e}", exc_info=True)

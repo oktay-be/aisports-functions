@@ -216,8 +216,18 @@ class NewsAggregator:
                     response.raise_for_status()
                     data = await response.json()
 
-            # Store raw API response
-            self.raw_responses['newsapi'] = data
+            # Store raw API response with request info
+            # Redact API key from params for logging
+            params_redacted = {k: v for k, v in params.items() if k != 'apiKey'}
+            params_redacted['apiKey'] = '***REDACTED***'
+            self.raw_responses['newsapi'] = {
+                'request': {
+                    'url': 'https://newsapi.org/v2/everything',
+                    'method': 'GET',
+                    'params': params_redacted
+                },
+                'response': data
+            }
 
             articles = [{
                 "title": article.get("title") or "Untitled",
@@ -290,8 +300,18 @@ class NewsAggregator:
                     response.raise_for_status()
                     data = await response.json()
 
-            # Store raw API response
-            self.raw_responses['worldnewsapi'] = data
+            # Store raw API response with request info
+            # Redact API key from params for logging
+            params_redacted = {k: v for k, v in params.items() if k != 'api-key'}
+            params_redacted['api-key'] = '***REDACTED***'
+            self.raw_responses['worldnewsapi'] = {
+                'request': {
+                    'url': 'https://api.worldnewsapi.com/search-news',
+                    'method': 'GET',
+                    'params': params_redacted
+                },
+                'response': data
+            }
 
             def get_worldnews_language(article):
                 """
@@ -376,8 +396,18 @@ class NewsAggregator:
                     response.raise_for_status()
                     data = await response.json()
 
-            # Store raw API response
-            self.raw_responses['gnews'] = data
+            # Store raw API response with request info
+            # Redact API key from params for logging
+            params_redacted = {k: v for k, v in params.items() if k != 'apikey'}
+            params_redacted['apikey'] = '***REDACTED***'
+            self.raw_responses['gnews'] = {
+                'request': {
+                    'url': 'https://gnews.io/api/v4/search',
+                    'method': 'GET',
+                    'params': params_redacted
+                },
+                'response': data
+            }
 
             articles = [{
                 "title": article.get("title") or "Untitled",
