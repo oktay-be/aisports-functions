@@ -454,11 +454,11 @@ async def _process_scraping_request(message_data: dict):
                     url = article.get('url') or article.get('original_url', '')
                     original_meta = url_metadata.get(url, {})
                     
-                    # Set language to empty string for scraped articles (scraper doesn't have language info like API)
-                    article['language'] = ''
+                    # Preserve language from API if available (from to_scrape.json), otherwise empty string
+                    article['language'] = original_meta.get('language', '')
 
-                    # Set region from Pub/Sub message
-                    article['region'] = region
+                    # Preserve region from API if available (from to_scrape.json), otherwise use Pub/Sub message region
+                    article['region'] = original_meta.get('region', region)
 
                     # Preserve publish_date from API if scraper didn't extract one
                     if not article.get('published_at') and original_meta.get('publish_date'):
