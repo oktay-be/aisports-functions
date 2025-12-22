@@ -55,6 +55,7 @@ GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME', 'aisports-scraping')
 # GCS path prefix for ingestion data (new structure: ingestion/api/YYYY-MM-DD/HH-MM-SS/)
 INGESTION_PREFIX = os.getenv('INGESTION_PREFIX', 'ingestion/')
 SESSION_DATA_CREATED_TOPIC = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-data-created')
+SOURCE_DISCOVERY_TOPIC = os.getenv('SOURCE_DISCOVERY_TOPIC', 'source-discovery')
 
 # Default keywords (same as scraper config)
 DEFAULT_KEYWORDS = ['fenerbahce', 'galatasaray', 'tedesco']
@@ -265,6 +266,40 @@ def publish_batch_processing_request(
 
     except Exception as e:
         logger.error(f"Error publishing batch message: {e}", exc_info=True)
+
+
+def publish_source_discovery_request(run_path: str, triggered_by: str) -> None:
+    """
+    Publish source discovery request to source-discovery topic.
+    This triggers the source_discoverer function to extract new FQDNs
+    from the article files and track them for potential addition to scraper config.
+
+    Args:
+        run_path: GCS path for this run (e.g., "ingestion/2025-12-22/15-17-02")
+        triggered_by: Who triggered this run
+    """
+    if not publisher:
+        logger.warning("Pub/Sub publisher not available (local env), skipping source discovery trigger")
+        return
+
+    discovery_message = {
+        "run_path": run_path,
+        "triggered_by": triggered_by,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+
+    try:
+        topic_path = publisher.topic_path(PROJECT_ID, SOURCE_DISCOVERY_TOPIC)
+        data = json.dumps(discovery_message).encode("utf-8")
+        future = publisher.publish(topic_path, data)
+        message_id = future.result()
+
+        logger.info(f"✓ Published source discovery request to {SOURCE_DISCOVERY_TOPIC} (message_id: {message_id})")
+        logger.info(f"  - Run path: {run_path}")
+
+    except Exception as e:
+        # Non-critical - log but don't fail the main flow
+        logger.error(f"Error publishing source discovery message: {e}", exc_info=True)
 
 
 async def trigger_scraper_for_incomplete_articles(
@@ -529,6 +564,9 @@ async def fetch_and_store_news(message_data: dict) -> dict:
         to_scrape_path = f"{base_path}/to_scrape.json"
         upload_to_gcs(GCS_BUCKET_NAME, to_scrape_path, incomplete_session_data)
 
+        # Trigger source discovery to track new FQDNs
+        publish_source_discovery_request(base_path, triggered_by)
+
         # Trigger scraper and exit (scraper will handle batch trigger)
         logger.info(f"Triggering scraper for {len(incomplete_articles)} incomplete articles")
         scraper_trigger_info = await trigger_scraper_for_incomplete_articles(
@@ -577,6 +615,9 @@ async def fetch_and_store_news(message_data: dict) -> dict:
     else:
         # No incomplete articles - trigger batch processing immediately
         logger.info("No incomplete articles. Triggering batch processing immediately.")
+
+        # Trigger source discovery to track new FQDNs
+        publish_source_discovery_request(base_path, triggered_by)
 
         session_files = [{
             'gcs_path': f"gs://{GCS_BUCKET_NAME}/{complete_articles_path}",
