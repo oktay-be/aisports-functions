@@ -104,7 +104,7 @@ You MUST preserve the following fields exactly as they appear in the input:
 - `basketball`, `volleyball`, `other-sports`
 
 **Football Tags:**
-- Transfers: `transfers-confirmed`, `transfers-rumors`, `transfers-negotiations`, `transfers-interest`
+- Transfers: `transfers` (covers confirmed, rumors, negotiations, interest - use this single tag)
 - Contracts: `contract-renewals`, `contract-disputes`, `departures`
 - Matches: `match-results`, `match-preview`, `match-report`, `match-postponement`
 - Analysis: `tactical-analysis`, `performance-analysis`, `league-standings`
@@ -116,6 +116,7 @@ You MUST preserve the following fields exactly as they appear in the input:
 - Fans: `fan-activity`, `fan-rivalry`, `fan-protest`
 - Rivalry: `team-rivalry`, `personal-rivalry`, `derby`
 - Media: `interviews`, `social-media`, `gossip-entertainment`, `player-statement`, `club-statement`
+{formatted_keywords}
 
 ## x_post Rules (CRITICAL)
 - ALWAYS in Turkish
@@ -163,7 +164,8 @@ The articles to process are provided in the attached JSON file with this structu
             "url": "https://...",
             "merged_from_urls": ["https://..."],
             "source": "example.com",
-            "publish_date": "2025-01-15T10:00:00Z"
+            "publish_date": "2025-01-15T10:00:00Z",
+            "keywords_used": ["kw1", "kw2", ...]
         }
     ]
 }
@@ -287,6 +289,8 @@ class ArticleEnricher:
                     "merged_from_urls": a.get('merged_from_urls', []),
                     "source": a.get('source', ''),
                     "publish_date": a.get('publish_date', ''),
+                    # Keywords that matched this article - LLM should add these as tags
+                    "keywords_used": a.get('keywords_used', a.get('keywords_matched', [])),
                     # Passthrough fields preserved in input file for recovery during transform
                     # (not included in LLM prompt/schema - restored after enrichment)
                     "language": a.get('language') or a.get('lang') or '',
