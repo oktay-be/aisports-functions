@@ -134,9 +134,9 @@ Example: if keywords_used=["fenerbahce"] and article mentions Fenerbahce → add
 ## Output Format
 Return JSON with format:
 ```json
-{
+{{
     "enriched_articles": [
-        {
+        {{
             "article_id": "original_id",
             "original_url": "http://...",
             "merged_from_urls": ["http://...", "http://..."],
@@ -144,27 +144,27 @@ Return JSON with format:
             "summary": "...",
             "x_post": "Turkish X post with #hashtags",
             "summary_translation": "Turkish translation or null",
-            "categories": [{"tag": "transfers-confirmed", "confidence": 0.9}],
-            "key_entities": {
+            "categories": [{{"tag": "transfers-confirmed", "confidence": 0.9}}],
+            "key_entities": {{
                 "teams": ["Fenerbahce"],
                 "players": ["Player Name"],
                 "amounts": ["10M EUR"],
                 "dates": ["2025-01-15"],
                 "competitions": ["Super Lig"],
                 "locations": ["Istanbul"]
-            },
+            }},
             "confidence": 0.85,
             "content_quality": "high"
-        }
+        }}
     ]
-}
+}}
 
 ## Input
 The articles to process are provided in the attached JSON file with this structure:
 ```json
-{
+{{
     "articles": [
-        {
+        {{
             "article_id": "unique_id",
             "title": "Article title",
             "body": "Full article body...",
@@ -173,9 +173,9 @@ The articles to process are provided in the attached JSON file with this structu
             "source": "example.com",
             "publish_date": "2025-01-15T10:00:00Z",
             "keywords_used": ["kw1", "kw2", ...]
-        }
+        }}
     ]
-}
+}}
 ```
 
 ## CRITICAL INSTRUCTIONS
