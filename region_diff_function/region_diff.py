@@ -486,20 +486,25 @@ class RegionDiffAnalyzer:
         result = {
             "article_id": article.get("article_id", ""),
             "title": article.get("title", ""),
-            "url": article.get("url", ""),
+            "original_url": article.get("original_url", ""),
             "source": article.get("source", ""),
-            "published_at": article.get("published_at", ""),
+            "publish_date": article.get("publish_date", ""),
             "max_similarity": round(max_similarity, 4),
+            # Preserve original metadata
+            "source_type": article.get("source_type", "scraped"),
+            "language": article.get("language", ""),
+            "original_region": article.get("region", "eu"),
         }
 
         if closest_article:
             result["closest_match"] = {
                 "article_id": closest_article.get("article_id", ""),
                 "title": closest_article.get("title", ""),
-                "url": closest_article.get("url", ""),
             }
+            result["closest_match_url"] = closest_article.get("original_url", "")
         else:
             result["closest_match"] = None
+            result["closest_match_url"] = ""
 
         return result
 
