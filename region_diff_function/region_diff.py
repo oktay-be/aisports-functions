@@ -99,7 +99,13 @@ class RegionDiffAnalyzer:
             bucket = self.storage_client.bucket(self.bucket_name)
             blob = bucket.blob(blob_path)
             content = blob.download_as_text()
-            articles = json.loads(content)
+            data = json.loads(content)
+
+            # Handle both {"articles": [...]} and direct [...] format
+            if isinstance(data, dict):
+                articles = data.get('articles', [])
+            else:
+                articles = data
 
             logger.debug(f"Loaded {len(articles)} articles from {blob_path}")
             return articles
