@@ -24,6 +24,21 @@ logger = logging.getLogger(__name__)
 # Articles with similarity >= threshold are considered covered in both regions
 DEFAULT_DIFF_THRESHOLD = 0.75
 
+# File patterns for different run types
+# Scrape-triggered runs produce scraped_* files
+# API-triggered runs produce complete_* and scraped_incomplete_* files
+EMBEDDING_FILES = [
+    'embeddings/scraped_embeddings.json',
+    'embeddings/complete_embeddings.json',
+    'embeddings/scraped_incomplete_embeddings.json'
+]
+
+ARTICLE_FILES = [
+    'enriched_scraped_articles.json',
+    'enriched_complete_articles.json',
+    'enriched_scraped_incomplete_articles.json'
+]
+
 
 class RegionDiffAnalyzer:
     """
@@ -114,6 +129,66 @@ class RegionDiffAnalyzer:
             logger.error(f"Error loading articles from {blob_path}: {e}")
             return []
 
+    def load_all_embeddings_from_run(self, run_folder: str) -> Tuple[List[str], np.ndarray]:
+        """
+        Load embeddings from all available embedding files in a run folder.
+
+        Handles both scrape-triggered runs (scraped_embeddings.json) and
+        API-triggered runs (complete_embeddings.json, scraped_incomplete_embeddings.json).
+
+        Args:
+            run_folder: GCS path to run folder (e.g., "ingestion/2025-12-22/08-37-29")
+
+        Returns:
+            Tuple of (all_article_ids, all_embeddings_array)
+        """
+        all_article_ids = []
+        all_embeddings = []
+
+        for emb_file in EMBEDDING_FILES:
+            path = f"{run_folder}/{emb_file}"
+            article_ids, embeddings = self.load_embeddings_from_gcs(path)
+            if len(article_ids) > 0:
+                logger.debug(f"Loaded {len(article_ids)} embeddings from {emb_file}")
+                all_article_ids.extend(article_ids)
+                all_embeddings.extend(embeddings)
+
+        if all_embeddings:
+            logger.info(f"Total {len(all_article_ids)} embeddings loaded from {run_folder}")
+            return all_article_ids, np.array(all_embeddings)
+
+        return [], np.array([])
+
+    def load_all_articles_from_run(self, run_folder: str) -> List[Dict[str, Any]]:
+        """
+        Load articles from all available article files in a run folder.
+
+        Handles both scrape-triggered runs (enriched_scraped_articles.json) and
+        API-triggered runs (enriched_complete_articles.json, enriched_scraped_incomplete_articles.json).
+
+        Args:
+            run_folder: GCS path to run folder (e.g., "ingestion/2025-12-22/08-37-29")
+
+        Returns:
+            List of all articles (deduplicated by article_id)
+        """
+        all_articles = []
+        seen_ids = set()
+
+        for art_file in ARTICLE_FILES:
+            path = f"{run_folder}/{art_file}"
+            articles = self.load_articles_from_gcs(path)
+            for article in articles:
+                aid = article.get('article_id')
+                if aid and aid not in seen_ids:
+                    seen_ids.add(aid)
+                    all_articles.append(article)
+
+        if all_articles:
+            logger.info(f"Total {len(all_articles)} articles loaded from {run_folder}")
+
+        return all_articles
+
     def get_historical_dates(self, run_folder: str) -> List[str]:
         """
         Get list of dates to load TR articles from based on historical_diff_depth.
@@ -200,16 +275,14 @@ class RegionDiffAnalyzer:
             logger.info(f"Loading TR data from {date}: {len(run_folders)} run folders")
 
             for run_folder in run_folders:
-                # Load embeddings
-                embeddings_path = f"{run_folder}/embeddings/scraped_embeddings.json"
-                article_ids, embeddings = self.load_embeddings_from_gcs(embeddings_path)
+                # Load all embeddings (scraped, complete, scraped_incomplete)
+                article_ids, embeddings = self.load_all_embeddings_from_run(run_folder)
 
                 if len(article_ids) == 0:
                     continue
 
-                # Load articles to filter by region
-                articles_path = f"{run_folder}/enriched_scraped_articles.json"
-                articles = self.load_articles_from_gcs(articles_path)
+                # Load all enriched articles to filter by region
+                articles = self.load_all_articles_from_run(run_folder)
 
                 if not articles:
                     continue
@@ -308,19 +381,18 @@ class RegionDiffAnalyzer:
         )
 
         # ===== LOAD REGION1 (EU) DATA FROM CURRENT RUN ONLY =====
-        embeddings_path = f"{run_folder}/embeddings/scraped_embeddings.json"
-        article_ids, embeddings = self.load_embeddings_from_gcs(embeddings_path)
+        # Load all embeddings (scraped, complete, scraped_incomplete)
+        article_ids, embeddings = self.load_all_embeddings_from_run(run_folder)
 
         if len(article_ids) == 0:
-            logger.warning(f"No embeddings found at {embeddings_path}")
+            logger.warning(f"No embeddings found in {run_folder}")
             return self._empty_result(region1, region2, run_folder, threshold)
 
-        # Load enriched articles to get region info
-        articles_path = f"{run_folder}/enriched_scraped_articles.json"
-        articles = self.load_articles_from_gcs(articles_path)
+        # Load all enriched articles to get region info
+        articles = self.load_all_articles_from_run(run_folder)
 
         if not articles:
-            logger.warning(f"No articles found at {articles_path}")
+            logger.warning(f"No articles found in {run_folder}")
             return self._empty_result(region1, region2, run_folder, threshold)
 
         # Create article_id to article mapping
