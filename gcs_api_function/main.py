@@ -412,6 +412,10 @@ def handle_get_articles(request: Request):
         return error_response('Invalid or missing API key', 401)
 
     region = request.args.get('region', 'all')
+
+    # Route diff region to dedicated handler
+    if region == 'diff':
+        return handle_get_diff(request)
     start_date = request.args.get('startDate')
     end_date = request.args.get('endDate')
     last_n_days = request.args.get('last_n_days', type=int)
@@ -452,6 +456,130 @@ def handle_get_articles(request: Request):
         ]
 
     return json_response(unique_articles)
+
+
+def handle_get_diff(request: Request):
+    """GET /articles?region=diff - Fetch region diff analysis files."""
+    # Validate API key
+    if not validate_api_key(request):
+        return error_response('Invalid or missing API key', 401)
+
+    start_date = request.args.get('startDate')
+    end_date = request.args.get('endDate')
+    last_n_days = request.args.get('last_n_days', type=int)
+
+    # Determine dates
+    if start_date and end_date:
+        dates_to_fetch = get_date_range(start_date, end_date)
+    elif last_n_days and last_n_days > 0:
+        end = datetime.now()
+        start = end - timedelta(days=last_n_days - 1)
+        dates_to_fetch = get_date_range(start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
+    else:
+        dates_to_fetch = [datetime.now().strftime('%Y-%m-%d')]
+
+    logger.info(f"[DIFF] Fetching diff files for dates: {dates_to_fetch}")
+
+    # Aggregate results
+    all_diff_results = {
+        'metadata': {
+            'region1': 'eu',
+            'region2': 'tr',
+            'dates': dates_to_fetch,
+            'generated_at': datetime.now().isoformat()
+        },
+        'summary': {
+            'total_region1_articles': 0,
+            'total_region2_articles': 0,
+            'unique_to_region1': 0
+        },
+        'unique_articles': []
+    }
+
+    try:
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+
+        for date in dates_to_fetch:
+            diff_prefix = f"ingestion/{date}/"
+            logger.info(f"[DIFF] Searching for diff files: {diff_prefix}")
+
+            blobs = list(bucket.list_blobs(prefix=diff_prefix))
+
+            # Find region_diff files in analysis folders
+            diff_files = [
+                b for b in blobs
+                if '/analysis/region_diff_' in b.name and b.name.endswith('.json')
+            ]
+
+            logger.info(f"[DIFF] Found {len(diff_files)} diff files for {date}")
+
+            for blob in diff_files:
+                try:
+                    content = blob.download_as_text()
+                    diff_data = json.loads(content)
+
+                    # Aggregate summaries
+                    if diff_data.get('summary'):
+                        all_diff_results['summary']['total_region1_articles'] += diff_data['summary'].get('total_region1_articles', 0)
+                        all_diff_results['summary']['total_region2_articles'] += diff_data['summary'].get('total_region2_articles', 0)
+                        all_diff_results['summary']['unique_to_region1'] += diff_data['summary'].get('unique_to_region1', 0)
+
+                    # Collect unique articles
+                    if diff_data.get('unique_articles'):
+                        all_diff_results['unique_articles'].extend(diff_data['unique_articles'])
+
+                    logger.info(f"[DIFF] Loaded {len(diff_data.get('unique_articles', []))} articles from {blob.name}")
+
+                except Exception as e:
+                    logger.error(f"[DIFF] Error processing {blob.name}: {e}")
+
+        # Deduplicate by article_id
+        seen_ids = set()
+        unique_articles = []
+        for article in all_diff_results['unique_articles']:
+            article_id = article.get('article_id')
+            if article_id and article_id not in seen_ids:
+                seen_ids.add(article_id)
+                unique_articles.append(article)
+
+        all_diff_results['unique_articles'] = unique_articles
+
+        logger.info(f"[DIFF] Total unique articles: {len(unique_articles)}")
+
+        # Transform to NewsEntry-compatible format for UI
+        news_entries = []
+        for article in unique_articles:
+            closest_match_info = ''
+            if article.get('closest_match'):
+                closest_title = article['closest_match'].get('title', '')[:50]
+                closest_match_info = f' Closest TR: "{closest_title}..."'
+
+            entry = {
+                'article_id': article.get('article_id', ''),
+                'original_url': article.get('url', ''),
+                'title': article.get('title', ''),
+                'summary': f"[EU-only, similarity: {int(article.get('max_similarity', 0) * 100)}%]{closest_match_info}",
+                'source': article.get('source', ''),
+                'publish_date': article.get('published_at', ''),
+                'categories': [],
+                'key_entities': {'teams': [], 'players': [], 'amounts': [], 'dates': [], 'competitions': [], 'locations': []},
+                'content_quality': 'medium',
+                'confidence': 1 - article.get('max_similarity', 0),
+                'language': 'en',
+                'region': 'diff',
+                'source_type': 'diff',
+                '_diff_metadata': {
+                    'max_similarity': article.get('max_similarity', 0),
+                    'closest_match': article.get('closest_match')
+                }
+            }
+            news_entries.append(entry)
+
+        return json_response(news_entries)
+
+    except Exception as e:
+        logger.error(f"[DIFF] Error: {e}")
+        return error_response(f'Failed to fetch diff data: {str(e)}', 500)
 
 
 def handle_get_user(request: Request):

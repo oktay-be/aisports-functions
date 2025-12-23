@@ -6,11 +6,14 @@ embeddings. Uses cosine similarity to determine if an article has coverage
 in the other region.
 
 Example: get_diff("eu", "tr") finds EU news not covered in Turkey.
+
+With HISTORICAL_DIFF_DEPTH > 1, compares new EU articles against TR articles
+from the last N days, not just the same run.
 """
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Tuple, Optional
 import numpy as np
 from google.cloud import storage
@@ -34,7 +37,8 @@ class RegionDiffAnalyzer:
         self,
         storage_client: storage.Client,
         bucket_name: str,
-        diff_threshold: float = DEFAULT_DIFF_THRESHOLD
+        diff_threshold: float = DEFAULT_DIFF_THRESHOLD,
+        historical_diff_depth: int = 3
     ):
         """
         Initialize the region diff analyzer.
@@ -44,13 +48,15 @@ class RegionDiffAnalyzer:
             bucket_name: GCS bucket name
             diff_threshold: Similarity threshold (default 0.75)
                            Articles with max_similarity < threshold are "unique"
+            historical_diff_depth: Number of days of TR history to compare against (default 3)
         """
         self.storage_client = storage_client
         self.bucket_name = bucket_name
         self.diff_threshold = diff_threshold
+        self.historical_diff_depth = historical_diff_depth
         logger.info(
             f"RegionDiffAnalyzer initialized: bucket={bucket_name}, "
-            f"diff_threshold={diff_threshold}"
+            f"diff_threshold={diff_threshold}, historical_diff_depth={historical_diff_depth}"
         )
 
     def load_embeddings_from_gcs(self, blob_path: str) -> Tuple[List[str], np.ndarray]:
@@ -102,6 +108,137 @@ class RegionDiffAnalyzer:
             logger.error(f"Error loading articles from {blob_path}: {e}")
             return []
 
+    def get_historical_dates(self, run_folder: str) -> List[str]:
+        """
+        Get list of dates to load TR articles from based on historical_diff_depth.
+
+        Args:
+            run_folder: Current run folder (e.g., "ingestion/2025-12-22/08-37-29")
+
+        Returns:
+            List of date strings (YYYY-MM-DD) going back historical_diff_depth days
+        """
+        # Extract date from run_folder: ingestion/2025-12-22/08-37-29 -> 2025-12-22
+        parts = run_folder.split('/')
+        if len(parts) >= 2:
+            current_date_str = parts[1]  # 2025-12-22
+        else:
+            current_date_str = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+
+        try:
+            current_date = datetime.strptime(current_date_str, '%Y-%m-%d')
+        except ValueError:
+            current_date = datetime.now(timezone.utc)
+
+        dates = []
+        for i in range(self.historical_diff_depth):
+            date = current_date - timedelta(days=i)
+            dates.append(date.strftime('%Y-%m-%d'))
+
+        logger.info(f"Historical dates for TR comparison: {dates}")
+        return dates
+
+    def find_run_folders_for_date(self, date: str) -> List[str]:
+        """
+        Find all run folders for a given date.
+
+        Args:
+            date: Date string (YYYY-MM-DD)
+
+        Returns:
+            List of run folder paths (e.g., ["ingestion/2025-12-22/08-37-29", ...])
+        """
+        prefix = f"ingestion/{date}/"
+        run_folders = set()
+
+        try:
+            bucket = self.storage_client.bucket(self.bucket_name)
+            blobs = bucket.list_blobs(prefix=prefix, delimiter='/')
+
+            # Get prefixes (subdirectories)
+            for page in blobs.pages:
+                for prefix_path in page.prefixes:
+                    # prefix_path is like "ingestion/2025-12-22/08-37-29/"
+                    run_folder = prefix_path.rstrip('/')
+                    run_folders.add(run_folder)
+
+            logger.debug(f"Found {len(run_folders)} run folders for {date}")
+
+        except Exception as e:
+            logger.error(f"Error finding run folders for {date}: {e}")
+
+        return list(run_folders)
+
+    def load_historical_tr_data(
+        self,
+        current_run_folder: str,
+        region2: str
+    ) -> Tuple[List[Tuple[str, int, Dict]], np.ndarray]:
+        """
+        Load TR articles and embeddings from historical dates.
+
+        Args:
+            current_run_folder: The current run folder (for EU articles)
+            region2: The region to load historical data for (e.g., "tr")
+
+        Returns:
+            Tuple of (region2_data list, region2_embeddings array)
+        """
+        historical_dates = self.get_historical_dates(current_run_folder)
+        all_region2_data = []  # (article_id, embedding)
+        all_region2_embeddings = []
+        seen_article_ids = set()
+
+        for date in historical_dates:
+            run_folders = self.find_run_folders_for_date(date)
+            logger.info(f"Loading TR data from {date}: {len(run_folders)} run folders")
+
+            for run_folder in run_folders:
+                # Load embeddings
+                embeddings_path = f"{run_folder}/embeddings/scraped_embeddings.json"
+                article_ids, embeddings = self.load_embeddings_from_gcs(embeddings_path)
+
+                if len(article_ids) == 0:
+                    continue
+
+                # Load articles to filter by region
+                articles_path = f"{run_folder}/enriched_scraped_articles.json"
+                articles = self.load_articles_from_gcs(articles_path)
+
+                if not articles:
+                    continue
+
+                # Create article_id to article mapping
+                article_map = {a.get('article_id'): a for a in articles}
+
+                # Filter for region2 articles only
+                for idx, article_id in enumerate(article_ids):
+                    # Skip if we've already seen this article
+                    if article_id in seen_article_ids:
+                        continue
+
+                    article = article_map.get(article_id)
+                    if not article:
+                        continue
+
+                    region = article.get('region', '').lower()
+                    if region == region2.lower():
+                        seen_article_ids.add(article_id)
+                        all_region2_data.append((article_id, len(all_region2_embeddings), article))
+                        all_region2_embeddings.append(embeddings[idx])
+
+        if all_region2_embeddings:
+            embeddings_array = np.array(all_region2_embeddings)
+        else:
+            embeddings_array = np.array([])
+
+        logger.info(
+            f"Loaded {len(all_region2_data)} unique {region2} articles "
+            f"from {len(historical_dates)} days of history"
+        )
+
+        return all_region2_data, embeddings_array
+
     def compute_similarity_matrix(
         self,
         embeddings1: np.ndarray,
@@ -144,6 +281,9 @@ class RegionDiffAnalyzer:
         """
         Find articles in region1 that have no similar match in region2.
 
+        Compares EU articles from current run against TR articles from
+        the last HISTORICAL_DIFF_DEPTH days (not just current run).
+
         Args:
             region1: Source region (e.g., "eu")
             region2: Comparison region (e.g., "tr")
@@ -157,10 +297,11 @@ class RegionDiffAnalyzer:
 
         logger.info(
             f"Computing diff: {region1} vs {region2}, "
-            f"run_folder={run_folder}, threshold={threshold}"
+            f"run_folder={run_folder}, threshold={threshold}, "
+            f"historical_diff_depth={self.historical_diff_depth}"
         )
 
-        # Load embeddings
+        # ===== LOAD REGION1 (EU) DATA FROM CURRENT RUN ONLY =====
         embeddings_path = f"{run_folder}/embeddings/scraped_embeddings.json"
         article_ids, embeddings = self.load_embeddings_from_gcs(embeddings_path)
 
@@ -179,9 +320,8 @@ class RegionDiffAnalyzer:
         # Create article_id to article mapping
         article_map = {a.get('article_id'): a for a in articles}
 
-        # Separate articles by region
+        # Extract region1 (EU) articles from current run
         region1_data = []  # (article_id, embedding_index, article)
-        region2_data = []
 
         for idx, article_id in enumerate(article_ids):
             article = article_map.get(article_id)
@@ -191,22 +331,25 @@ class RegionDiffAnalyzer:
             region = article.get('region', '').lower()
             if region == region1.lower():
                 region1_data.append((article_id, idx, article))
-            elif region == region2.lower():
-                region2_data.append((article_id, idx, article))
 
-        logger.info(
-            f"Found {len(region1_data)} {region1} articles, "
-            f"{len(region2_data)} {region2} articles"
-        )
+        logger.info(f"Found {len(region1_data)} {region1} articles in current run")
 
-        # Handle edge cases
+        # Handle edge case: no region1 articles
         if len(region1_data) == 0:
-            logger.info(f"No {region1} articles found")
+            logger.info(f"No {region1} articles found in current run")
             return self._empty_result(region1, region2, run_folder, threshold)
 
+        # ===== LOAD REGION2 (TR) DATA FROM HISTORICAL DATES =====
+        region2_data, region2_embeddings = self.load_historical_tr_data(
+            run_folder, region2
+        )
+
+        # Handle edge case: no region2 articles in history
         if len(region2_data) == 0:
-            # All region1 articles are unique (no region2 to compare)
-            logger.info(f"No {region2} articles - all {region1} articles are unique")
+            logger.info(
+                f"No {region2} articles found in last {self.historical_diff_depth} days - "
+                f"all {region1} articles are unique"
+            )
             unique_articles = [
                 self._format_unique_article(article, 0.0, None)
                 for _, _, article in region1_data
@@ -216,14 +359,13 @@ class RegionDiffAnalyzer:
                 len(region1_data), 0, unique_articles
             )
 
-        # Build embedding matrices
+        # ===== BUILD EMBEDDING MATRICES =====
         region1_indices = [idx for _, idx, _ in region1_data]
-        region2_indices = [idx for _, idx, _ in region2_data]
-
         region1_embeddings = embeddings[region1_indices]
-        region2_embeddings = embeddings[region2_indices]
 
-        # Compute similarity matrix
+        # region2_embeddings is already built by load_historical_tr_data
+
+        # ===== COMPUTE SIMILARITY MATRIX =====
         similarity_matrix = self.compute_similarity_matrix(
             region1_embeddings, region2_embeddings
         )
@@ -247,7 +389,8 @@ class RegionDiffAnalyzer:
 
         logger.info(
             f"Diff complete: {len(unique_articles)} unique to {region1} "
-            f"(out of {len(region1_data)})"
+            f"(out of {len(region1_data)}, compared against {len(region2_data)} "
+            f"{region2} articles from {self.historical_diff_depth} days)"
         )
 
         return self._build_result(

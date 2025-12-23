@@ -15,6 +15,7 @@ env:
   DIFF_THRESHOLD: '0.75'  # Similarity threshold for considering articles as "same story"
   REGION1: 'eu'           # Source region (find articles unique to this region)
   REGION2: 'tr'           # Comparison region
+  HISTORICAL_DIFF_DEPTH: '3'  # Days of TR history to compare against (1 = same day only)
 
 permissions:
   id-token: write
@@ -65,5 +66,6 @@ jobs:
           DIFF_THRESHOLD=${{ env.DIFF_THRESHOLD }}
           REGION1=${{ env.REGION1 }}
           REGION2=${{ env.REGION2 }}
+          HISTORICAL_DIFF_DEPTH=${{ env.HISTORICAL_DIFF_DEPTH }}
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}

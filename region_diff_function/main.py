@@ -53,6 +53,7 @@ GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME', 'aisports-scraping')
 DIFF_THRESHOLD = float(os.getenv('DIFF_THRESHOLD', '0.75'))
 REGION1 = os.getenv('REGION1', 'eu')
 REGION2 = os.getenv('REGION2', 'tr')
+HISTORICAL_DIFF_DEPTH = int(os.getenv('HISTORICAL_DIFF_DEPTH', '3'))  # Days of TR history to compare against
 
 # File patterns that trigger this function
 TRIGGER_PATTERNS = [
@@ -101,7 +102,8 @@ def region_diff_handler(event, context):
         analyzer = RegionDiffAnalyzer(
             storage_client=storage_client,
             bucket_name=bucket,
-            diff_threshold=DIFF_THRESHOLD
+            diff_threshold=DIFF_THRESHOLD,
+            historical_diff_depth=HISTORICAL_DIFF_DEPTH
         )
 
         # Compute diff
@@ -110,6 +112,8 @@ def region_diff_handler(event, context):
             region2=REGION2,
             run_folder=run_folder
         )
+
+        logger.info(f"Historical diff depth: {HISTORICAL_DIFF_DEPTH} days")
 
         # Save result to analysis folder
         output_path = f"{run_folder}/analysis/region_diff_{REGION1}_vs_{REGION2}.json"
@@ -137,6 +141,7 @@ def main(request):
         region1 = data.get('region1', REGION1)
         region2 = data.get('region2', REGION2)
         diff_threshold = float(data.get('diff_threshold', DIFF_THRESHOLD))
+        historical_diff_depth = int(data.get('historical_diff_depth', HISTORICAL_DIFF_DEPTH))
 
         if not run_folder:
             return {"error": "run_folder required"}, 400
@@ -144,7 +149,8 @@ def main(request):
         analyzer = RegionDiffAnalyzer(
             storage_client=storage_client,
             bucket_name=GCS_BUCKET_NAME,
-            diff_threshold=diff_threshold
+            diff_threshold=diff_threshold,
+            historical_diff_depth=historical_diff_depth
         )
 
         result = analyzer.get_diff(
