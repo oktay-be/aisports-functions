@@ -5,13 +5,15 @@ Unified API middleware between UI and GCS.
 Serves: articles, user preferences, config, and triggers for scraper/news-api.
 
 Endpoints:
-  GET  /articles          - Fetch enriched articles
-  GET  /user              - Get user info
-  GET  /user/preferences  - Get user preferences
-  PUT  /user/preferences  - Save user preferences
-  GET  /config/news-api   - Get news API config
-  POST /trigger/scraper   - Trigger scraper via Pub/Sub
-  POST /trigger/news-api  - Trigger news API fetcher via Pub/Sub
+  GET  /articles              - Fetch enriched articles
+  GET  /user                  - Get user info
+  GET  /user/preferences      - Get user preferences
+  PUT  /user/preferences      - Save user preferences
+  GET  /config/news-api       - Get news API config
+  GET  /config/allowed-users  - Get allowed users (admin only)
+  GET  /config/admin-users    - Get current user's admin status
+  POST /trigger/scraper       - Trigger scraper via Pub/Sub
+  POST /trigger/news-api      - Trigger news API fetcher via Pub/Sub
 """
 
 import os
@@ -687,6 +689,31 @@ def handle_get_news_api_config(request: Request):
         return error_response(str(e), 500)
 
 
+def handle_get_allowed_users(request: Request):
+    """GET /config/allowed-users - Get list of allowed users (admin only)."""
+    user = verify_google_token(request)
+    if not user:
+        return error_response('Invalid or missing token', 401)
+
+    if not is_user_admin(user['email']):
+        return error_response('Admin access required', 403)
+
+    allowed_users = load_allowed_users()
+    return json_response({'allowed_users': allowed_users})
+
+
+def handle_get_admin_status(request: Request):
+    """GET /config/admin-users - Get current user's admin status."""
+    user = verify_google_token(request)
+    if not user:
+        return error_response('Invalid or missing token', 401)
+
+    return json_response({
+        'email': user['email'],
+        'isAdmin': is_user_admin(user['email'])
+    })
+
+
 def handle_trigger_scraper(request: Request):
     """POST /trigger/scraper - Trigger scraper via Pub/Sub."""
     user = verify_google_token(request)
@@ -802,7 +829,15 @@ def main(request: Request):
     elif path == '/config/news-api':
         if method == 'GET':
             return handle_get_news_api_config(request)
-    
+
+    elif path == '/config/allowed-users':
+        if method == 'GET':
+            return handle_get_allowed_users(request)
+
+    elif path == '/config/admin-users':
+        if method == 'GET':
+            return handle_get_admin_status(request)
+
     elif path == '/trigger/scraper':
         if method == 'POST':
             return handle_trigger_scraper(request)
