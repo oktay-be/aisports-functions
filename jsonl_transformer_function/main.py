@@ -354,7 +354,7 @@ def transform_enrichment_results(entries: List[Dict[str, Any]],
                 'region': region,
                 'source_type': article.get('source_type', '') or original.get('source_type', 'scraped'),
                 # Passthrough field for keyword highlighting in UI
-                'keywords_used': original.get('keywords_used', original.get('keywords_matched', [])),
+                'keywords_used': original.get('keywords_used', []),
                 '_processing_metadata': processing_metadata,
                 '_merge_metadata': article.get('_merge_metadata', original.get('_merge_metadata'))
             })

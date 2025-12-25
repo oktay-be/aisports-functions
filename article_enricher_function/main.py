@@ -297,7 +297,7 @@ class ArticleEnricher:
                     "source": a.get('source', ''),
                     "publish_date": a.get('publish_date', ''),
                     # Keywords that matched this article - LLM should add these as tags
-                    "keywords_used": a.get('keywords_used', a.get('keywords_matched', [])),
+                    "keywords_used": a.get('keywords_used', []),
                     # Passthrough fields preserved in input file for recovery during transform
                     # (not included in LLM prompt/schema - restored after enrichment)
                     "language": a.get('language') or a.get('lang') or '',
@@ -343,7 +343,7 @@ class ArticleEnricher:
         # Collect all unique keywords from articles for prompt formatting
         all_keywords = set()
         for article in articles:
-            keywords = article.get('keywords_used', article.get('keywords_matched', []))
+            keywords = article.get('keywords_used', [])
             if keywords:
                 all_keywords.update(k.lower() for k in keywords if isinstance(k, str))
 
