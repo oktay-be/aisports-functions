@@ -308,7 +308,8 @@ def normalize_article(article: Dict[str, Any], content_map: Dict[str, str] = Non
         'region': article.get('region'),
         'summary_translation': article.get('summary_translation'),
         'x_post': article.get('x_post'),
-        'source_type': article.get('source_type', 'scraped')
+        'source_type': article.get('source_type', 'scraped'),
+        'keywords_used': article.get('keywords_used', [])  # For UI keyword highlighting
     }
 
 

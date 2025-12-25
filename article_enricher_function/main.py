@@ -291,7 +291,7 @@ class ArticleEnricher:
                 {
                     "article_id": a.get('article_id', ''),
                     "title": a.get('title', ''),
-                    "body": (a.get('body', '') or '')[:3000],
+                    "body": (a.get('body', '') or '')[:8000],
                     "url": a.get('original_url', a.get('url', '')),
                     "merged_from_urls": a.get('merged_from_urls', []),
                     "source": a.get('source', ''),

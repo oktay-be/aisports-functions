@@ -428,6 +428,8 @@ class ArticleProcessor:
             # Don't default language - preserve from source or leave empty
             normalized.setdefault('language', '')
             normalized.setdefault('x_post', '')
+            # Preserve keywords that matched this article (for UI highlighting)
+            normalized.setdefault('keywords_used', normalized.get('keywords_matched', []))
             # Derive region from language if not set: tr -> tr, everything else -> eu
             if 'region' not in normalized or not normalized.get('region'):
                 lang = normalized.get('language', '')
