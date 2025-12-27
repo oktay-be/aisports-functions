@@ -55,6 +55,11 @@ GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 # JOURNALIST_LOG_LEVEL already defined above for logging configuration
 
+# Browserless configuration (optional - for JS-heavy pages like /foto-galeri/)
+BROWSERLESS_URL = os.getenv('BROWSERLESS_URL')  # URL of Browserless Cloud Run service
+BROWSERLESS_TOKEN = os.getenv('BROWSERLESS_TOKEN')  # Auth token for Browserless API
+BROWSERLESS_MAX_SCROLLS = int(os.getenv('BROWSERLESS_MAX_SCROLLS', '20'))  # Max scroll iterations
+
 # =============================================================================
 # CONSTANTS
 # =============================================================================
@@ -516,7 +521,20 @@ async def _process_scraping_request(message_data: dict):
         logger.info(f"Keywords: {keywords}")
         logger.info(f"Triggered by: {triggered_by}")
         
-        journalist = Journalist(persist=persist, scrape_depth=scrape_depth)
+        # Log Browserless configuration status
+        browserless_enabled = bool(BROWSERLESS_URL and BROWSERLESS_TOKEN)
+        if browserless_enabled:
+            logger.info(f"Browserless enabled: URL={BROWSERLESS_URL}, max_scrolls={BROWSERLESS_MAX_SCROLLS}")
+        else:
+            logger.info("Browserless disabled (no URL/token configured)")
+        
+        journalist = Journalist(
+            persist=persist, 
+            scrape_depth=scrape_depth,
+            browserless_url=BROWSERLESS_URL,
+            browserless_token=BROWSERLESS_TOKEN,
+            max_scrolls=BROWSERLESS_MAX_SCROLLS
+        )
         
         # Start timing the scraping operation
         start_time = datetime.now(timezone.utc)

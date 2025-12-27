@@ -54,4 +54,7 @@ jobs:
           INGESTION_PREFIX=${{ vars.INGESTION_PREFIX }}
           JOURNALIST_LOG_LEVEL=INFO
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
+          BROWSERLESS_URL=${{ secrets.BROWSERLESS_URL }}
+          BROWSERLESS_TOKEN=${{ secrets.BROWSERLESS_TOKEN }}
+          BROWSERLESS_MAX_SCROLLS=20
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
