@@ -61,7 +61,8 @@ jobs:
           GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
           VERTEX_AI_LOCATION=${{ vars.VERTEX_AI_LOCATION }}
           EMBEDDING_MODEL=${{ vars.EMBEDDING_MODEL }}
-          CROSS_RUN_DEDUP_THRESHOLD=0.7
+          CROSS_RUN_DEDUP_THRESHOLD_TR=0.85
+          CROSS_RUN_DEDUP_THRESHOLD_EU=0.9
           GROUPING_THRESHOLD=0.8
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}

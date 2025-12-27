@@ -50,7 +50,7 @@ PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT', 'gen-lang-client-0306766464')
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME', 'aisports-scraping')
 
 # Diff configuration
-DIFF_THRESHOLD = float(os.getenv('DIFF_THRESHOLD', '0.75'))
+REGION_DIFF_THRESHOLD = float(os.getenv('REGION_DIFF_THRESHOLD', '0.75'))
 REGION1 = os.getenv('REGION1', 'eu')
 REGION2 = os.getenv('REGION2', 'tr')
 HISTORICAL_DIFF_DEPTH = int(os.getenv('HISTORICAL_DIFF_DEPTH', '3'))  # Days of TR history to compare against
@@ -102,7 +102,7 @@ def region_diff_handler(event, context):
         analyzer = RegionDiffAnalyzer(
             storage_client=storage_client,
             bucket_name=bucket,
-            diff_threshold=DIFF_THRESHOLD,
+            diff_threshold=REGION_DIFF_THRESHOLD,
             historical_diff_depth=HISTORICAL_DIFF_DEPTH
         )
 
@@ -140,7 +140,7 @@ def main(request):
         run_folder = data.get('run_folder', '')
         region1 = data.get('region1', REGION1)
         region2 = data.get('region2', REGION2)
-        diff_threshold = float(data.get('diff_threshold', DIFF_THRESHOLD))
+        diff_threshold = float(data.get('diff_threshold', REGION_DIFF_THRESHOLD))
         historical_diff_depth = int(data.get('historical_diff_depth', HISTORICAL_DIFF_DEPTH))
 
         if not run_folder:
