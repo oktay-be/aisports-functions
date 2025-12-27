@@ -482,7 +482,7 @@ class RegionDiffAnalyzer:
         max_similarity: float,
         closest_article: Optional[Dict[str, Any]]
     ) -> Dict[str, Any]:
-        """Format a unique article for output."""
+        """Format a unique article for output, preserving all enriched fields."""
         result = {
             "article_id": article.get("article_id", ""),
             "title": article.get("title", ""),
@@ -494,12 +494,26 @@ class RegionDiffAnalyzer:
             "source_type": article.get("source_type", "scraped"),
             "language": article.get("language", ""),
             "original_region": article.get("region", "eu"),
+            # Preserve enriched article fields for filtering in UI
+            "summary": article.get("summary", ""),
+            "content": article.get("content", ""),
+            "categories": article.get("categories", []),
+            "key_entities": article.get("key_entities", {
+                "teams": [], "players": [], "amounts": [],
+                "dates": [], "competitions": [], "locations": []
+            }),
+            "content_quality": article.get("content_quality", "medium"),
+            "confidence": article.get("confidence", 0.5),
+            "summary_translation": article.get("summary_translation"),
+            "x_post": article.get("x_post"),
+            "keywords_used": article.get("keywords_used", []),
         }
 
         if closest_article:
             result["closest_match"] = {
                 "article_id": closest_article.get("article_id", ""),
                 "title": closest_article.get("title", ""),
+                "url": closest_article.get("original_url", ""),
             }
             result["closest_match_url"] = closest_article.get("original_url", "")
         else:

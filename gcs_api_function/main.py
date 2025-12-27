@@ -550,33 +550,19 @@ def handle_get_diff(request: Request):
         logger.info(f"[DIFF] Total unique articles: {len(unique_articles)}")
 
         # Transform to NewsEntry-compatible format for UI
+        # Use normalize_article for common fields, then add diff-specific metadata
         news_entries = []
         for article in unique_articles:
-            closest_match_info = ''
-            if article.get('closest_match'):
-                closest_title = article['closest_match'].get('title', '')[:50]
-                closest_match_info = f' Closest TR: "{closest_title}..."'
-
-            entry = {
-                'article_id': article.get('article_id', ''),
-                'original_url': article.get('original_url', ''),
-                'title': article.get('title', ''),
-                'summary': f"[EU-only, similarity: {int(article.get('max_similarity', 0) * 100)}%]{closest_match_info}",
-                'source': article.get('source', ''),
-                'publish_date': article.get('publish_date', ''),
-                'categories': [],
-                'key_entities': {'teams': [], 'players': [], 'amounts': [], 'dates': [], 'competitions': [], 'locations': []},
-                'content_quality': 'medium',
-                'confidence': 1 - article.get('max_similarity', 0),
-                'language': article.get('language', 'en'),  # Preserve original language
-                'region': 'diff',  # Keep for routing
-                'source_type': article.get('source_type', 'scraped'),  # Preserve original source_type
-                '_diff_metadata': {
-                    'max_similarity': article.get('max_similarity', 0),
-                    'closest_match': article.get('closest_match'),
-                    'closest_match_url': article.get('closest_match_url', ''),
-                    'original_region': article.get('original_region', 'eu')
-                }
+            # Normalize using same function as EU/TR articles
+            entry = normalize_article(article)
+            # Override region for routing
+            entry['region'] = 'diff'
+            # Add diff-specific metadata
+            entry['_diff_metadata'] = {
+                'max_similarity': article.get('max_similarity', 0),
+                'closest_match': article.get('closest_match'),
+                'closest_match_url': article.get('closest_match_url', ''),
+                'original_region': article.get('original_region', 'eu')
             }
             news_entries.append(entry)
 
