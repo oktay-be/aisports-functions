@@ -55,10 +55,10 @@ GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 # JOURNALIST_LOG_LEVEL already defined above for logging configuration
 
-# Browserless configuration (optional - for JS-heavy pages like /foto-galeri/)
-BROWSERLESS_URL = os.getenv('BROWSERLESS_URL')  # URL of Browserless Cloud Run service
-BROWSERLESS_TOKEN = os.getenv('BROWSERLESS_TOKEN')  # Auth token for Browserless API
-BROWSERLESS_MAX_SCROLLS = int(os.getenv('BROWSERLESS_MAX_SCROLLS', '20'))  # Max scroll iterations
+# Browser Service configuration (optional - for JS-heavy pages like /foto-galeri/)
+BROWSER_SERVICE_URL = os.getenv('BROWSER_SERVICE_URL')  # URL of Browser Render Service
+BROWSER_SERVICE_API_KEY = os.getenv('BROWSER_SERVICE_API_KEY')  # API key for authentication
+BROWSER_SERVICE_MAX_SCROLLS = int(os.getenv('BROWSER_SERVICE_MAX_SCROLLS', '20'))  # Max scroll iterations
 
 # =============================================================================
 # CONSTANTS
@@ -521,19 +521,19 @@ async def _process_scraping_request(message_data: dict):
         logger.info(f"Keywords: {keywords}")
         logger.info(f"Triggered by: {triggered_by}")
         
-        # Log Browserless configuration status
-        browserless_enabled = bool(BROWSERLESS_URL and BROWSERLESS_TOKEN)
-        if browserless_enabled:
-            logger.info(f"Browserless enabled: URL={BROWSERLESS_URL}, max_scrolls={BROWSERLESS_MAX_SCROLLS}")
+        # Log Browser Service configuration status
+        browser_service_enabled = bool(BROWSER_SERVICE_URL and BROWSER_SERVICE_API_KEY)
+        if browser_service_enabled:
+            logger.info(f"Browser Service enabled: URL={BROWSER_SERVICE_URL}, max_scrolls={BROWSER_SERVICE_MAX_SCROLLS}")
         else:
-            logger.info("Browserless disabled (no URL/token configured)")
-        
+            logger.info("Browser Service disabled (no URL/API key configured)")
+
         journalist = Journalist(
-            persist=persist, 
+            persist=persist,
             scrape_depth=scrape_depth,
-            browserless_url=BROWSERLESS_URL,
-            browserless_token=BROWSERLESS_TOKEN,
-            max_scrolls=BROWSERLESS_MAX_SCROLLS
+            browserless_url=BROWSER_SERVICE_URL,
+            browserless_token=BROWSER_SERVICE_API_KEY,
+            max_scrolls=BROWSER_SERVICE_MAX_SCROLLS
         )
         
         # Start timing the scraping operation

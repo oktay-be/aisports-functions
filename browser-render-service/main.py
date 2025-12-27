@@ -29,7 +29,7 @@ app = FastAPI(
 )
 
 # Security: API Key from environment variable
-SERVICE_API_KEY = os.getenv("SERVICE_API_KEY")
+BROWSER_SERVICE_API_KEY = os.getenv("BROWSER_SERVICE_API_KEY")
 
 # Default configuration
 DEFAULT_SCROLL_COUNT = 5
@@ -61,7 +61,7 @@ async def render(
         JSON with rendered HTML content
     """
     # Authentication check
-    if SERVICE_API_KEY and x_api_key != SERVICE_API_KEY:
+    if BROWSER_SERVICE_API_KEY and x_api_key != BROWSER_SERVICE_API_KEY:
         logger.warning("Invalid API key attempt for URL: %s", url)
         raise HTTPException(status_code=403, detail="Invalid API Key")
 
