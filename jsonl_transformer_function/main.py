@@ -400,13 +400,15 @@ def transform_merge_results(entries: List[Dict[str, Any]], groups_data: Dict[str
     for decision in all_decisions:
         decided_articles.append({
             'group_id': decision.get('group_id'),
-            'decision': decision.get('decision', 'KEEP_BOTH'),
+            'decision': decision.get('decision', 'KEEP_ALL'),
             'reason': decision.get('reason', ''),
             'primary_article_id': decision.get('primary_article_id'),
             'primary_article_url': decision.get('primary_article_url'),
-            # DEPRECATED: merged_article_ids - use merged_from_urls instead
             'merged_article_ids': decision.get('merged_article_ids', []),
             'merged_from_urls': decision.get('merged_from_urls', []),
+            # For PARTIAL_MERGE: articles to keep separate
+            'kept_separate_ids': decision.get('kept_separate_ids', []),
+            'kept_separate_urls': decision.get('kept_separate_urls', []),
             '_merge_metadata': {
                 'decided_at': datetime.now(timezone.utc).isoformat(),
                 'processor': 'batch_merge'
@@ -528,6 +530,11 @@ def apply_merge_decisions(decisions: List[Dict], groups_data: Dict) -> List[Dict
 
     Returns:
         List of articles with decisions applied
+
+    Decision types:
+        - MERGE: All articles merged into primary
+        - PARTIAL_MERGE: Most merged into primary, some kept separate
+        - KEEP_ALL/KEEP_BOTH: All articles kept separate
     """
     groups = groups_data.get('groups', [])
     if not groups:
@@ -543,12 +550,13 @@ def apply_merge_decisions(decisions: List[Dict], groups_data: Dict) -> List[Dict
         group_id = group.get('group_id', 0)
         articles = group.get('articles', [])
         decision = decision_map.get(group_id, {})
+        decision_type = decision.get('decision', '')
 
-        if decision.get('decision') == 'MERGE':
+        if decision_type == 'MERGE':
             # Find primary article
             primary_id = decision.get('primary_article_id')
             primary_article = None
-            
+
             # Use merged_from_urls from LLM decision if available, otherwise collect from articles
             merged_from_urls = decision.get('merged_from_urls', [])
             if not merged_from_urls:
@@ -568,7 +576,7 @@ def apply_merge_decisions(decisions: List[Dict], groups_data: Dict) -> List[Dict
             if primary_article:
                 # Set merged_from_urls on the article object (canonical field name)
                 primary_article['merged_from_urls'] = merged_from_urls
-                
+
                 primary_article['_merge_metadata'] = {
                     'decision': 'MERGED',
                     'reason': decision.get('reason', ''),
@@ -578,8 +586,67 @@ def apply_merge_decisions(decisions: List[Dict], groups_data: Dict) -> List[Dict
                 }
                 output_articles.append(primary_article)
 
+        elif decision_type == 'PARTIAL_MERGE':
+            # PARTIAL_MERGE: Merge most articles, keep some separate
+            primary_id = decision.get('primary_article_id')
+            kept_separate_ids = set(decision.get('kept_separate_ids', []))
+            kept_separate_urls = set(decision.get('kept_separate_urls', []))
+
+            # Build merged_from_urls from LLM decision or collect from non-kept articles
+            merged_from_urls = decision.get('merged_from_urls', [])
+
+            primary_article = None
+            articles_to_merge = []
+            articles_to_keep = []
+
+            for article in articles:
+                article_id = article.get('article_id', '')
+                article_url = article.get('original_url', article.get('url', ''))
+
+                # Check if this article should be kept separate
+                if article_id in kept_separate_ids or article_url in kept_separate_urls:
+                    articles_to_keep.append(article)
+                else:
+                    articles_to_merge.append(article)
+                    if article_id == primary_id:
+                        primary_article = article.copy()
+
+            # Fallback: build merged_from_urls from articles_to_merge
+            if not merged_from_urls:
+                for article in articles_to_merge:
+                    url = article.get('original_url', article.get('url', ''))
+                    if url:
+                        merged_from_urls.append(url)
+
+            # If no primary found, use first article to merge
+            if not primary_article and articles_to_merge:
+                primary_article = articles_to_merge[0].copy()
+
+            # Output merged article
+            if primary_article:
+                primary_article['merged_from_urls'] = merged_from_urls
+                primary_article['_merge_metadata'] = {
+                    'decision': 'PARTIAL_MERGED',
+                    'reason': decision.get('reason', ''),
+                    'group_id': group_id,
+                    'merged_from_count': len(articles_to_merge),
+                    'merged_from_urls': merged_from_urls,
+                    'kept_separate_count': len(articles_to_keep)
+                }
+                output_articles.append(primary_article)
+
+            # Output kept-separate articles
+            for article in articles_to_keep:
+                article_copy = article.copy()
+                article_copy['_merge_metadata'] = {
+                    'decision': 'KEPT_SEPARATE_UNIQUE',
+                    'reason': f"Unique article kept from partial merge: {decision.get('reason', '')}",
+                    'group_id': group_id
+                }
+                output_articles.append(article_copy)
+
         else:
-            # KEEP_BOTH - output all articles
+            # KEEP_ALL or KEEP_BOTH (backwards compat) - output all articles
             for article in articles:
                 article_copy = article.copy()
                 article_copy['_merge_metadata'] = {
