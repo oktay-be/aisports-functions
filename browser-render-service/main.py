@@ -7,13 +7,16 @@ and returns the fully rendered HTML. Secured via X-API-Key header.
 
 Endpoints:
     GET /render?url=<target_url>&scrolls=<num_scrolls>
-    GET /health - Health check endpoint
+    GET /health - Health check endpoint (no auth)
 """
 
 import os
 import logging
+from datetime import datetime
+from typing import Dict, Any
 from fastapi import FastAPI, HTTPException, Header, Query
 from playwright.async_api import async_playwright
+from google.cloud import secretmanager
 
 # Configure logging
 logging.basicConfig(
@@ -28,18 +31,73 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Security: API Key from environment variable
-BROWSER_SERVICE_API_KEY = os.getenv("BROWSER_SERVICE_API_KEY")
+# Environment Configuration
+ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
+PROJECT_ID = os.getenv('GOOGLE_CLOUD_PROJECT', 'gen-lang-client-0306766464')
+API_KEY_SECRET_ID = os.getenv('API_KEY_SECRET_ID', 'BROWSER_SERVICE_API_KEY')
 
 # Default configuration
 DEFAULT_SCROLL_COUNT = 5
 DEFAULT_SCROLL_WAIT_MS = 1500
 DEFAULT_TIMEOUT_MS = 60000
 
+# Initialize Secret Manager client
+if ENVIRONMENT != 'local':
+    secret_client = secretmanager.SecretManagerServiceClient()
+else:
+    secret_client = None
+
+# In-memory cache with TTL
+CACHE: Dict[str, Dict[str, Any]] = {}
+CONFIG_CACHE_TTL_SECONDS = 5 * 60  # 5 minutes
+
+
+def access_secret(secret_id: str, version_id: str = "latest") -> str:
+    """Access a secret from Google Cloud Secret Manager."""
+    if ENVIRONMENT == 'local':
+        return os.getenv(secret_id, '').strip()
+
+    try:
+        name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/{version_id}"
+        response = secret_client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8").strip()
+    except Exception as e:
+        logger.error(f"Error accessing secret {secret_id}: {e}")
+        return ''
+
+
+def validate_api_key(api_key: str) -> bool:
+    """Validate the API key from request headers."""
+    if not api_key:
+        return False
+
+    # Check cache first to avoid Secret Manager calls on every request
+    cache_key = 'api_key'
+    cached = CACHE.get(cache_key)
+
+    if cached and (datetime.now().timestamp() - cached['timestamp'] < CONFIG_CACHE_TTL_SECONDS):
+        expected_key = cached['data']
+    else:
+        expected_key = access_secret(API_KEY_SECRET_ID)
+        if expected_key:
+            CACHE[cache_key] = {'data': expected_key, 'timestamp': datetime.now().timestamp()}
+
+    if not expected_key:
+        logger.error("Could not retrieve API key from Secret Manager")
+        return False
+
+    return api_key == expected_key
+
+
+@app.get("/")
+async def root():
+    """Root endpoint - returns 403 Forbidden."""
+    raise HTTPException(status_code=403, detail="Forbidden")
+
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint for Cloud Run."""
+    """Health check endpoint for Cloud Run (no auth required)."""
     return {"status": "healthy", "service": "browser-render-service"}
 
 
@@ -55,15 +113,15 @@ async def render(
     Args:
         url: Target URL to render
         scrolls: Number of times to scroll down (default: 5)
-        x_api_key: API key for authentication
+        x_api_key: API key for authentication (REQUIRED)
 
     Returns:
         JSON with rendered HTML content
     """
-    # Authentication check
-    if BROWSER_SERVICE_API_KEY and x_api_key != BROWSER_SERVICE_API_KEY:
-        logger.warning("Invalid API key attempt for URL: %s", url)
-        raise HTTPException(status_code=403, detail="Invalid API Key")
+    # Authentication check (MANDATORY)
+    if not validate_api_key(x_api_key):
+        logger.warning("Invalid or missing API key for URL: %s", url)
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     logger.info("Rendering URL: %s (scrolls=%d)", url, scrolls)
 

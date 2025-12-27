@@ -41,5 +41,6 @@ jobs:
           region: ${{ vars.REGION }}
           source: ./browser-render-service
           env_vars: |
-            BROWSER_SERVICE_API_KEY=${{ secrets.BROWSER_SERVICE_API_KEY }}
+            GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
+            ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
           flags: '--allow-unauthenticated --memory=2Gi --cpu=2 --timeout=300 --concurrency=5 --min-instances=0 --max-instances=3'

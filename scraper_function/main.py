@@ -11,7 +11,7 @@ from pathlib import Path
 # CET timezone for run timestamps
 CET = ZoneInfo("Europe/Berlin")
 
-from google.cloud import pubsub_v1, storage
+from google.cloud import pubsub_v1, storage, secretmanager
 try:
     from journalist import Journalist
     JOURNALIST_AVAILABLE = True
@@ -43,9 +43,11 @@ ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
 if ENVIRONMENT != 'local':
     publisher = pubsub_v1.PublisherClient()
     storage_client = storage.Client()
+    secret_client = secretmanager.SecretManagerServiceClient()
 else:
     publisher = None
     storage_client = None
+    secret_client = None
     logger.info("Running in local environment - skipping Google Cloud client initialization")
 
 # Configuration from environment variables
@@ -57,8 +59,22 @@ NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 
 # Browser Service configuration (optional - for JS-heavy pages like /foto-galeri/)
 BROWSER_SERVICE_URL = os.getenv('BROWSER_SERVICE_URL')  # URL of Browser Render Service
-BROWSER_SERVICE_API_KEY = os.getenv('BROWSER_SERVICE_API_KEY')  # API key for authentication
+BROWSER_SERVICE_API_KEY_SECRET_ID = os.getenv('BROWSER_SERVICE_API_KEY_SECRET_ID', 'BROWSER_SERVICE_API_KEY')
 BROWSER_SERVICE_MAX_SCROLLS = int(os.getenv('BROWSER_SERVICE_MAX_SCROLLS', '20'))  # Max scroll iterations
+
+
+def access_secret(secret_id: str, version_id: str = "latest") -> str:
+    """Access a secret from Google Cloud Secret Manager."""
+    if ENVIRONMENT == 'local':
+        return os.getenv(secret_id, '').strip()
+
+    try:
+        name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/{version_id}"
+        response = secret_client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8").strip()
+    except Exception as e:
+        logger.error(f"Error accessing secret {secret_id}: {e}")
+        return ''
 
 # =============================================================================
 # CONSTANTS
@@ -521,8 +537,13 @@ async def _process_scraping_request(message_data: dict):
         logger.info(f"Keywords: {keywords}")
         logger.info(f"Triggered by: {triggered_by}")
         
+        # Get Browser Service API key from Secret Manager (if URL is configured)
+        browser_service_api_key = None
+        if BROWSER_SERVICE_URL:
+            browser_service_api_key = access_secret(BROWSER_SERVICE_API_KEY_SECRET_ID)
+
         # Log Browser Service configuration status
-        browser_service_enabled = bool(BROWSER_SERVICE_URL and BROWSER_SERVICE_API_KEY)
+        browser_service_enabled = bool(BROWSER_SERVICE_URL and browser_service_api_key)
         if browser_service_enabled:
             logger.info(f"Browser Service enabled: URL={BROWSER_SERVICE_URL}, max_scrolls={BROWSER_SERVICE_MAX_SCROLLS}")
         else:
@@ -532,7 +553,7 @@ async def _process_scraping_request(message_data: dict):
             persist=persist,
             scrape_depth=scrape_depth,
             browserless_url=BROWSER_SERVICE_URL,
-            browserless_token=BROWSER_SERVICE_API_KEY,
+            browserless_token=browser_service_api_key,
             max_scrolls=BROWSER_SERVICE_MAX_SCROLLS
         )
         
