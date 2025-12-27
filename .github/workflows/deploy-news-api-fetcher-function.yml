@@ -1,3 +1,33 @@
+# =============================================================================
+# Deploy News API Fetcher Function
+# =============================================================================
+# Cloud Function that fetches articles from external news APIs.
+# Triggered by Pub/Sub messages from gcs-api.
+#
+# AUTHENTICATION:
+#   - Uses Workload Identity Federation (no service account keys stored in GitHub)
+#   - Service account: GCP_SERVICE_ACCOUNT
+#
+# SECRET MANAGEMENT:
+#   - News API keys stored in GCP Secret Manager (accessed at runtime)
+#   - NO secrets are passed as environment variables in this workflow
+#
+# GITHUB VARIABLES USED:
+#   - GCP_PROJECT_NUMBER: GCP project number for WIF
+#   - WIF_POOL_ID: Workload Identity Pool ID
+#   - WIF_PROVIDER_ID: Workload Identity Provider ID
+#   - GCP_SERVICE_ACCOUNT: Service account email
+#   - GOOGLE_CLOUD_PROJECT: GCP project ID
+#   - REGION: Deployment region
+#   - GCS_BUCKET_NAME: GCS bucket for storing fetched data
+#   - NEWS_API_REQUESTS_TOPIC: Pub/Sub topic for incoming requests
+#   - INGESTION_PREFIX: GCS prefix for ingestion data
+#   - SOURCE_DISCOVERY_TOPIC: Pub/Sub topic for source discovery
+#   - FUNCTION_ENVIRONMENT: Environment name
+#
+# TRIGGER: Pub/Sub message on news-api-requests topic
+# =============================================================================
+
 name: Deploy News API Fetcher Function
 
 on:
@@ -13,8 +43,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write # This is crucial for Workload Identity Federation
-  contents: read # Allow checkout action to read the repository
+  id-token: write  # Required for Workload Identity Federation
+  contents: read   # Required to checkout repository
 
 jobs:
   deploy:
@@ -24,13 +54,14 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # Authenticate using Workload Identity Federation (keyless authentication)
     - name: Authenticate to Google Cloud (Workload Identity Federation)
       uses: google-github-actions/auth@v2
       with:
         workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ vars.WIF_POOL_ID }}/providers/${{ vars.WIF_PROVIDER_ID }}'
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
         export_environment_variables: true
-        
+
     - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v3
       with:

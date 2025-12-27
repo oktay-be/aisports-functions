@@ -1,3 +1,32 @@
+# =============================================================================
+# Deploy Article Processor Function
+# =============================================================================
+# Cloud Function that processes scraped articles: generates embeddings,
+# performs deduplication, and groups similar articles.
+#
+# AUTHENTICATION:
+#   - Uses Workload Identity Federation (no service account keys stored in GitHub)
+#   - Service account: GCP_SERVICE_ACCOUNT
+#
+# SECRET MANAGEMENT:
+#   - This function does not use any secrets
+#   - All configuration is passed via environment variables
+#
+# GITHUB VARIABLES USED:
+#   - GCP_PROJECT_NUMBER: GCP project number for WIF
+#   - WIF_POOL_ID: Workload Identity Pool ID
+#   - WIF_PROVIDER_ID: Workload Identity Provider ID
+#   - GCP_SERVICE_ACCOUNT: Service account email
+#   - GOOGLE_CLOUD_PROJECT: GCP project ID
+#   - REGION: Deployment region
+#   - GCS_BUCKET_NAME: GCS bucket for data storage
+#   - VERTEX_AI_LOCATION: Location for Vertex AI API calls
+#   - EMBEDDING_MODEL: Model for generating text embeddings
+#   - FUNCTION_ENVIRONMENT: Environment name
+#
+# TRIGGER: GCS object finalized (ingestion/*/*/*_articles.json)
+# =============================================================================
+
 name: Deploy Article Processor Function
 
 on:
@@ -15,8 +44,8 @@ env:
   TRIGGER_LOCATION: 'us'  # Must match GCS bucket location
 
 permissions:
-  id-token: write
-  contents: read
+  id-token: write  # Required for Workload Identity Federation
+  contents: read   # Required to checkout repository
 
 jobs:
   deploy:
@@ -26,6 +55,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # Authenticate using Workload Identity Federation (keyless authentication)
     - name: Authenticate to Google Cloud (Workload Identity Federation)
       uses: google-github-actions/auth@v2
       with:

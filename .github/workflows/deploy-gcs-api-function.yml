@@ -1,3 +1,35 @@
+# =============================================================================
+# Deploy GCS API Function
+# =============================================================================
+# HTTP-triggered Cloud Function serving as the API gateway for aisports-ui.
+# Provides endpoints for articles, user preferences, and triggering pipelines.
+#
+# AUTHENTICATION:
+#   - Uses Workload Identity Federation (no service account keys stored in GitHub)
+#   - Service account: GCP_SERVICE_ACCOUNT
+#
+# SECRET MANAGEMENT:
+#   - API key stored in GCP Secret Manager as 'ARTICLE_API_KEY'
+#   - API_KEY_SECRET_ID env var tells the function which secret to read
+#   - The function reads secrets at runtime via Secret Manager API
+#   - NO actual secrets are passed as environment variables
+#
+# GITHUB VARIABLES USED:
+#   - GCP_PROJECT_NUMBER: GCP project number for WIF
+#   - WIF_POOL_ID: Workload Identity Pool ID
+#   - WIF_PROVIDER_ID: Workload Identity Provider ID
+#   - GCP_SERVICE_ACCOUNT: Service account email
+#   - GOOGLE_CLOUD_PROJECT: GCP project ID
+#   - REGION: Deployment region
+#   - GCS_BUCKET_NAME: GCS bucket for data storage
+#   - GOOGLE_CLIENT_ID: OAuth client ID for user authentication
+#   - SCRAPING_REQUESTS_TOPIC: Pub/Sub topic for scraper triggers
+#   - NEWS_API_REQUESTS_TOPIC: Pub/Sub topic for news API triggers
+#   - FUNCTION_ENVIRONMENT: Environment name
+#
+# TRIGGER: HTTP requests (unauthenticated at IAM level, API key validated in code)
+# =============================================================================
+
 name: Deploy GCS API Function
 
 on:
@@ -12,8 +44,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write
-  contents: read
+  id-token: write  # Required for Workload Identity Federation
+  contents: read   # Required to checkout repository
 
 jobs:
   deploy:
@@ -23,6 +55,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # Authenticate using Workload Identity Federation (keyless authentication)
     - name: Authenticate to Google Cloud (Workload Identity Federation)
       uses: google-github-actions/auth@v2
       with:
@@ -43,14 +76,15 @@ jobs:
         region: ${{ vars.REGION }}
         source_dir: gcs_api_function
         entry_point: main
-        # HTTP trigger (not event-based)
-        https_trigger_security_level: secure_always
+        https_trigger_security_level: secure_always  # HTTP trigger (not event-based)
         memory: 512Mi
         cpu: 1
         service_timeout: 60
         max_instance_count: 10
         min_instance_count: 0
         max_instance_request_concurrency: 80
+        # Note: API_KEY_SECRET_ID is the NAME of the secret in GCP Secret Manager
+        # The actual API key is read at runtime, not passed here
         environment_variables: |
           GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
           GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
@@ -61,6 +95,8 @@ jobs:
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
+    # Allow unauthenticated access at IAM level
+    # API key validation happens in the function code via X-API-Key header
     - name: Allow unauthenticated access
       run: |
         gcloud run services add-iam-policy-binding gcs-api \
