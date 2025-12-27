@@ -1,0 +1,44 @@
+name: Deploy Browser Render Service
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - 'browser-render-service/**'
+      - '.github/workflows/deploy-browser-render-service.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ vars.WIF_POOL_ID }}/providers/${{ vars.WIF_PROVIDER_ID }}'
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GOOGLE_CLOUD_PROJECT }}
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: browser-render-service
+          region: ${{ vars.REGION }}
+          source: ./browser-render-service
+          env_vars: |
+            SERVICE_API_KEY=${{ secrets.BROWSER_SERVICE_API_KEY }}
+          flags: '--allow-unauthenticated --memory=2Gi --cpu=2 --timeout=300 --concurrency=5 --min-instances=0 --max-instances=3'
