@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - 'feature/**'
     paths:
       - 'article_processor_function/**'
       - '.github/workflows/deploy-article-processor-function.yml'

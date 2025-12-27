@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - 'feature/**'
     paths:
       - 'news_api_fetcher_function/**'
       - '.github/workflows/deploy-news-api-fetcher-function.yml'

@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - 'feature/**'
     paths:
       - 'region_diff_function/**'
       - '.github/workflows/deploy-region-diff-function.yml'

@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - 'feature/**'
     paths:
       - 'merge_decider_function/**'
       - '.github/workflows/deploy-merge-decider-function.yml'

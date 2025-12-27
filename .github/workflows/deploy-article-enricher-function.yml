@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - 'feature/**'
     paths:
       - 'article_enricher_function/**'
       - '.github/workflows/deploy-article-enricher-function.yml'

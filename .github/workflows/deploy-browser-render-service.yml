@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - 'feature/**'
     paths:
       - 'browser-render-service/**'
       - '.github/workflows/deploy-browser-render-service.yml'

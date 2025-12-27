@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - 'feature/**'
     paths:
       - 'gcs_api_function/**'
       - '.github/workflows/deploy-gcs-api-function.yml'

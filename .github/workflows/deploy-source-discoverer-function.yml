@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - 'feature/**'
     paths:
       - 'source_discoverer_function/**'
       - '.github/workflows/deploy-source-discoverer-function.yml'

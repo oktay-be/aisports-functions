@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - dev
+      - 'feature/**'
     paths:
       - 'jsonl_transformer_function/**'
       - '.github/workflows/deploy-jsonl-transformer-function.yml'
