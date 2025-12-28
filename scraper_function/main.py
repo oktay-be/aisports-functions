@@ -73,7 +73,7 @@ def access_secret(secret_id: str, version_id: str = "latest") -> str:
         response = secret_client.access_secret_version(request={"name": name})
         return response.payload.data.decode("UTF-8").strip()
     except Exception as e:
-        logger.error(f"Error accessing secret {secret_id}: {e}")
+        logger.error("Error accessing secret: %s", e)
         return ''
 
 # =============================================================================
