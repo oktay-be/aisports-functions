@@ -37,8 +37,8 @@ on:
     paths:
       - 'source_discoverer_function/**'
       - '.github/workflows/deploy-source-discoverer-function.yml'
-
   workflow_dispatch:
+  workflow_call:  # Enables calling from deploy-all.yml
 
 permissions:
   id-token: write  # Required for Workload Identity Federation

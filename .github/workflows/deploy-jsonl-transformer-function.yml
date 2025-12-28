@@ -36,6 +36,7 @@ on:
       - 'jsonl_transformer_function/**'
       - '.github/workflows/deploy-jsonl-transformer-function.yml'
   workflow_dispatch:
+  workflow_call:  # Enables calling from deploy-all.yml
 
 env:
   TRIGGER_LOCATION: 'us'  # Must match GCS bucket location

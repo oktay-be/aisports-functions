@@ -37,6 +37,7 @@ on:
       - 'region_diff_function/**'
       - '.github/workflows/deploy-region-diff-function.yml'
   workflow_dispatch:
+  workflow_call:  # Enables calling from deploy-all.yml
 
 env:
   TRIGGER_LOCATION: 'us'           # Must match GCS bucket location

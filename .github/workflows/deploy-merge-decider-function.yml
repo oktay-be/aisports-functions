@@ -39,6 +39,7 @@ on:
       - 'merge_decider_function/**'
       - '.github/workflows/deploy-merge-decider-function.yml'
   workflow_dispatch:
+  workflow_call:  # Enables calling from deploy-all.yml
 
 env:
   TRIGGER_LOCATION: 'us'  # Must match GCS bucket location

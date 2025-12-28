@@ -1,0 +1,159 @@
+# =============================================================================
+# Deploy All Functions
+# =============================================================================
+# Orchestrator workflow to deploy all functions at once.
+# Triggers individual deploy workflows in parallel.
+#
+# USAGE:
+#   Go to Actions tab > "Deploy All Functions" > "Run workflow"
+#   - Select branch (dev or main)
+#   - Check "Deploy all services" OR select individual functions
+#
+# NOTE: Each function's workflow must have `workflow_call:` in its `on:` section
+# =============================================================================
+
+name: Deploy All Functions
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_all:
+        description: 'Deploy all services'
+        type: boolean
+        default: true
+      article_enricher:
+        description: 'article-enricher'
+        type: boolean
+        default: false
+      article_processor:
+        description: 'article-processor'
+        type: boolean
+        default: false
+      jsonl_transformer:
+        description: 'jsonl-transformer'
+        type: boolean
+        default: false
+      merge_decider:
+        description: 'merge-decider'
+        type: boolean
+        default: false
+      region_diff:
+        description: 'region-diff'
+        type: boolean
+        default: false
+      scraper:
+        description: 'scrape-and-store'
+        type: boolean
+        default: false
+      news_api_fetcher:
+        description: 'news-api-fetch'
+        type: boolean
+        default: false
+      source_discoverer:
+        description: 'source-discoverer'
+        type: boolean
+        default: false
+      gcs_api:
+        description: 'gcs-api'
+        type: boolean
+        default: false
+      browser_render:
+        description: 'browser-render-service'
+        type: boolean
+        default: false
+
+jobs:
+  # Article Enricher
+  deploy-article-enricher:
+    if: ${{ inputs.deploy_all || inputs.article_enricher }}
+    uses: ./.github/workflows/deploy-article-enricher-function.yml
+    secrets: inherit
+
+  # Article Processor
+  deploy-article-processor:
+    if: ${{ inputs.deploy_all || inputs.article_processor }}
+    uses: ./.github/workflows/deploy-article-processor-function.yml
+    secrets: inherit
+
+  # JSONL Transformer
+  deploy-jsonl-transformer:
+    if: ${{ inputs.deploy_all || inputs.jsonl_transformer }}
+    uses: ./.github/workflows/deploy-jsonl-transformer-function.yml
+    secrets: inherit
+
+  # Merge Decider
+  deploy-merge-decider:
+    if: ${{ inputs.deploy_all || inputs.merge_decider }}
+    uses: ./.github/workflows/deploy-merge-decider-function.yml
+    secrets: inherit
+
+  # Region Diff
+  deploy-region-diff:
+    if: ${{ inputs.deploy_all || inputs.region_diff }}
+    uses: ./.github/workflows/deploy-region-diff-function.yml
+    secrets: inherit
+
+  # Scraper
+  deploy-scraper:
+    if: ${{ inputs.deploy_all || inputs.scraper }}
+    uses: ./.github/workflows/deploy-scraper-function.yml
+    secrets: inherit
+
+  # News API Fetcher
+  deploy-news-api-fetcher:
+    if: ${{ inputs.deploy_all || inputs.news_api_fetcher }}
+    uses: ./.github/workflows/deploy-news-api-fetcher-function.yml
+    secrets: inherit
+
+  # Source Discoverer
+  deploy-source-discoverer:
+    if: ${{ inputs.deploy_all || inputs.source_discoverer }}
+    uses: ./.github/workflows/deploy-source-discoverer-function.yml
+    secrets: inherit
+
+  # GCS API
+  deploy-gcs-api:
+    if: ${{ inputs.deploy_all || inputs.gcs_api }}
+    uses: ./.github/workflows/deploy-gcs-api-function.yml
+    secrets: inherit
+
+  # Browser Render Service
+  deploy-browser-render:
+    if: ${{ inputs.deploy_all || inputs.browser_render }}
+    uses: ./.github/workflows/deploy-browser-render-service.yml
+    secrets: inherit
+
+  # Summary job - runs after all deployments
+  summary:
+    runs-on: ubuntu-latest
+    needs:
+      - deploy-article-enricher
+      - deploy-article-processor
+      - deploy-jsonl-transformer
+      - deploy-merge-decider
+      - deploy-region-diff
+      - deploy-scraper
+      - deploy-news-api-fetcher
+      - deploy-source-discoverer
+      - deploy-gcs-api
+      - deploy-browser-render
+    if: always()
+    steps:
+      - name: Deployment Summary
+        run: |
+          echo "## Deploy All Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| article-enricher | ${{ needs.deploy-article-enricher.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| article-processor | ${{ needs.deploy-article-processor.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| jsonl-transformer | ${{ needs.deploy-jsonl-transformer.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| merge-decider | ${{ needs.deploy-merge-decider.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| region-diff | ${{ needs.deploy-region-diff.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| scrape-and-store | ${{ needs.deploy-scraper.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| news-api-fetch | ${{ needs.deploy-news-api-fetcher.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| source-discoverer | ${{ needs.deploy-source-discoverer.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| gcs-api | ${{ needs.deploy-gcs-api.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| browser-render-service | ${{ needs.deploy-browser-render.result }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY

@@ -35,6 +35,7 @@ on:
       - 'browser-render-service/**'
       - '.github/workflows/deploy-browser-render-service.yml'
   workflow_dispatch:
+  workflow_call:  # Enables calling from deploy-all.yml
 
 permissions:
   id-token: write  # Required for Workload Identity Federation
