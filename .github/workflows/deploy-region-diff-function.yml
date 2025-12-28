@@ -1,8 +1,8 @@
 # =============================================================================
-# Deploy Source Discoverer Function
+# Deploy Region Diff Function
 # =============================================================================
-# Cloud Function that discovers new news sources from fetched articles.
-# Triggered by Pub/Sub messages.
+# Cloud Function that compares articles between EU and TR regions to find
+# stories unique to one region.
 #
 # AUTHENTICATION:
 #   - Uses Workload Identity Federation (no service account keys stored in GitHub)
@@ -20,13 +20,12 @@
 #   - GOOGLE_CLOUD_PROJECT: GCP project ID
 #   - REGION: Deployment region
 #   - GCS_BUCKET_NAME: GCS bucket for data storage
-#   - SOURCE_DISCOVERY_TOPIC: Pub/Sub topic for incoming requests
 #   - FUNCTION_ENVIRONMENT: Environment name
 #
-# TRIGGER: Pub/Sub message on source-discovery topic
+# TRIGGER: GCS object finalized (ingestion/**/enriched_*_articles.json)
 # =============================================================================
 
-name: Deploy Source Discoverer Function
+name: Deploy Region Diff Function
 
 on:
   push:
@@ -35,10 +34,16 @@ on:
       - dev
       - 'feature/**'
     paths:
-      - 'source_discoverer_function/**'
-      - '.github/workflows/deploy-source-discoverer-function.yml'
-
+      - 'region_diff_function/**'
+      - '.github/workflows/deploy-region-diff-function.yml'
   workflow_dispatch:
+
+env:
+  TRIGGER_LOCATION: 'us'           # Must match GCS bucket location
+  DIFF_THRESHOLD: '0.75'           # Similarity threshold for "same story"
+  REGION1: 'eu'                    # Source region (find articles unique to this)
+  REGION2: 'tr'                    # Comparison region
+  HISTORICAL_DIFF_DEPTH: '3'       # Days of history to compare (1 = same day only)
 
 permissions:
   id-token: write  # Required for Workload Identity Federation
@@ -60,24 +65,36 @@ jobs:
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
         export_environment_variables: true
 
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+      with:
+        project_id: ${{ vars.GOOGLE_CLOUD_PROJECT }}
+
     - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v3
       with:
-        name: source-discoverer
+        name: region-diff
         runtime: python312
-        memory: 256Mi
+        region: ${{ vars.REGION }}
+        source_dir: region_diff_function
+        entry_point: region_diff_handler
+        event_trigger_type: google.cloud.storage.object.v1.finalized
+        event_trigger_location: ${{ env.TRIGGER_LOCATION }}
+        event_trigger_filters: |
+          bucket=${{ vars.GCS_BUCKET_NAME }}
+        event_trigger_event_filters_path_pattern: 'ingestion/**/enriched_*_articles.json'
+        memory: 1Gi
         cpu: 1
-        service_timeout: 60
-        max_instance_count: 1
+        service_timeout: 300
+        max_instance_count: 5
         min_instance_count: 0
         max_instance_request_concurrency: 1
-        entry_point: source_discoverer
-        source_dir: source_discoverer_function
-        event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
-        event_trigger_pubsub_topic: projects/${{ vars.GOOGLE_CLOUD_PROJECT }}/topics/${{ vars.SOURCE_DISCOVERY_TOPIC }}
-        region: ${{ vars.REGION }}
         environment_variables: |
           GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
           GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
+          REGION_DIFF_THRESHOLD=${{ env.REGION_DIFF_THRESHOLD }}
+          REGION1=${{ env.REGION1 }}
+          REGION2=${{ env.REGION2 }}
+          HISTORICAL_DIFF_DEPTH=${{ env.HISTORICAL_DIFF_DEPTH }}
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}

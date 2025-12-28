@@ -1,0 +1,76 @@
+# =============================================================================
+# Deploy Browser Render Service
+# =============================================================================
+# Cloud Run service that renders JavaScript-heavy pages using Playwright.
+# Used by scraper_function to handle infinite scroll galleries.
+#
+# AUTHENTICATION:
+#   - Uses Workload Identity Federation (no service account keys stored in GitHub)
+#   - Service account: GCP_SERVICE_ACCOUNT
+#
+# SECRET MANAGEMENT:
+#   - API key stored in GCP Secret Manager as 'BROWSER_SERVICE_API_KEY'
+#   - The service reads secrets at runtime via Secret Manager API
+#   - NO secrets are passed as environment variables in this workflow
+#
+# GITHUB VARIABLES USED:
+#   - GCP_PROJECT_NUMBER: GCP project number for WIF
+#   - WIF_POOL_ID: Workload Identity Pool ID
+#   - WIF_PROVIDER_ID: Workload Identity Provider ID
+#   - GCP_SERVICE_ACCOUNT: Service account email
+#   - GOOGLE_CLOUD_PROJECT: GCP project ID
+#   - REGION: Deployment region (us-central1)
+#   - FUNCTION_ENVIRONMENT: Environment name (production/development)
+# =============================================================================
+
+name: Deploy Browser Render Service
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+      - 'feature/**'
+    paths:
+      - 'browser-render-service/**'
+      - '.github/workflows/deploy-browser-render-service.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write  # Required for Workload Identity Federation
+  contents: read   # Required to checkout repository
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Authenticate using Workload Identity Federation (keyless authentication)
+      # More secure than storing service account keys in GitHub secrets
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ vars.WIF_POOL_ID }}/providers/${{ vars.WIF_PROVIDER_ID }}'
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ vars.GOOGLE_CLOUD_PROJECT }}
+
+      # Deploy to Cloud Run
+      # --allow-unauthenticated: IAM allows all traffic, but API key validation happens in code
+      # The service validates X-API-Key header against secret from GCP Secret Manager
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: browser-render-service
+          region: ${{ vars.REGION }}
+          source: ./browser-render-service
+          env_vars: |
+            GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
+            ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
+          flags: '--allow-unauthenticated --memory=2Gi --cpu=2 --timeout=300 --concurrency=5 --min-instances=0 --max-instances=3 --service-account=${{ vars.GCP_SERVICE_ACCOUNT }}'

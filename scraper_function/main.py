@@ -11,7 +11,7 @@ from pathlib import Path
 # CET timezone for run timestamps
 CET = ZoneInfo("Europe/Berlin")
 
-from google.cloud import pubsub_v1, storage
+from google.cloud import pubsub_v1, storage, secretmanager
 try:
     from journalist import Journalist
     JOURNALIST_AVAILABLE = True
@@ -43,9 +43,11 @@ ENVIRONMENT = os.getenv('ENVIRONMENT', 'development')
 if ENVIRONMENT != 'local':
     publisher = pubsub_v1.PublisherClient()
     storage_client = storage.Client()
+    secret_client = secretmanager.SecretManagerServiceClient()
 else:
     publisher = None
     storage_client = None
+    secret_client = None
     logger.info("Running in local environment - skipping Google Cloud client initialization")
 
 # Configuration from environment variables
@@ -54,6 +56,25 @@ SESSION_DATA_CREATED_TOPIC = os.getenv('SESSION_DATA_CREATED_TOPIC', 'session-da
 GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
 NEWS_DATA_ROOT_PREFIX = os.getenv('NEWS_DATA_ROOT_PREFIX', 'news_data/')
 # JOURNALIST_LOG_LEVEL already defined above for logging configuration
+
+# Browser Service configuration (optional - for JS-heavy pages like /foto-galeri/)
+BROWSER_SERVICE_URL = os.getenv('BROWSER_SERVICE_URL')  # URL of Browser Render Service
+BROWSER_SERVICE_API_KEY_SECRET_ID = os.getenv('BROWSER_SERVICE_API_KEY_SECRET_ID', 'BROWSER_SERVICE_API_KEY')
+BROWSER_SERVICE_MAX_SCROLLS = int(os.getenv('BROWSER_SERVICE_MAX_SCROLLS', '20'))  # Max scroll iterations
+
+
+def access_secret(secret_id: str, version_id: str = "latest") -> str:
+    """Access a secret from Google Cloud Secret Manager."""
+    if ENVIRONMENT == 'local':
+        return os.getenv(secret_id, '').strip()
+
+    try:
+        name = f"projects/{PROJECT_ID}/secrets/{secret_id}/versions/{version_id}"
+        response = secret_client.access_secret_version(request={"name": name})
+        return response.payload.data.decode("UTF-8").strip()
+    except Exception as e:
+        logger.error("Error accessing secret: %s", e)
+        return ''
 
 # =============================================================================
 # CONSTANTS
@@ -142,6 +163,7 @@ def load_article_metadata_from_gcs(bucket_name: str, api_run_path: str) -> dict:
                     'publish_date': article.get('publish_date'),
                     'source_type': article.get('source_type', 'api'),
                     'article_id': article.get('article_id'),
+                    'keywords_used': article.get('keywords_used', []),
                 }
         
         logger.info(f"Loaded metadata for {len(url_metadata)} URLs from to_scrape.json")
@@ -152,25 +174,28 @@ def load_article_metadata_from_gcs(bucket_name: str, api_run_path: str) -> dict:
     return url_metadata
 
 
-def apply_metadata_to_articles(articles: list, url_metadata: dict, fallback_region: str) -> list:
+def apply_metadata_to_articles(articles: list, url_metadata: dict, fallback_region: str, fallback_keywords: list = None) -> list:
     """
     Apply preserved metadata to scraped articles.
-    
-    For API-triggered runs: Uses metadata from to_scrape.json (language, region, article_id, publish_date)
-    For standalone runs: Uses fallback_region, generates article_id, language is empty
-    
+
+    For API-triggered runs: Uses metadata from to_scrape.json (language, region, article_id, publish_date, keywords_used)
+    For standalone runs: Uses fallback_region, fallback_keywords, generates article_id, language is empty
+
     Args:
         articles: List of scraped article dicts
         url_metadata: Dict mapping URL -> metadata (from load_article_metadata_from_gcs)
         fallback_region: Region to use if not found in metadata (from Pub/Sub message)
-        
+        fallback_keywords: Keywords to use for standalone articles (from Pub/Sub message)
+
     Returns:
         Modified articles list with metadata applied
     """
+    fallback_keywords = fallback_keywords or []
+
     for article in articles:
         url = article.get('url') or article.get('original_url', '')
         meta = url_metadata.get(url, {})
-        
+
         if meta:
             # API-triggered: preserve original metadata from to_scrape.json
             article['language'] = meta.get('language', '')
@@ -181,6 +206,8 @@ def apply_metadata_to_articles(articles: list, url_metadata: dict, fallback_regi
                 article['published_at'] = meta.get('publish_date')
             # Preserve source_type from API (should remain 'api' for API-triggered articles)
             article['source_type'] = meta.get('source_type', 'api')
+            # Preserve keywords_used from API metadata
+            article['keywords_used'] = meta.get('keywords_used', fallback_keywords)
         else:
             # Standalone: use fallbacks
             article['language'] = ''
@@ -189,7 +216,9 @@ def apply_metadata_to_articles(articles: list, url_metadata: dict, fallback_regi
                 article['article_id'] = generate_article_id(url) if url else ''
             # Standalone articles are truly scraped (not from API)
             article['source_type'] = 'scraped'
-    
+            # Set keywords_used from Pub/Sub message keywords
+            article['keywords_used'] = fallback_keywords
+
     return articles
 
 
@@ -288,7 +317,7 @@ def normalize_article_for_session_schema(article: dict, region: str, language: s
     normalized = {
         'url': url,
         'scraped_at': article.get('scraped_at', datetime.now(timezone.utc).isoformat()),
-        'keywords_used': article.get('keywords_used', article.get('keywords_matched', [])),
+        'keywords_used': article.get('keywords_used', []),
         'title': article.get('title', ''),
         'body': body,
         'publish_date': publish_date,
@@ -508,7 +537,25 @@ async def _process_scraping_request(message_data: dict):
         logger.info(f"Keywords: {keywords}")
         logger.info(f"Triggered by: {triggered_by}")
         
-        journalist = Journalist(persist=persist, scrape_depth=scrape_depth)
+        # Get Browser Service API key from Secret Manager (if URL is configured)
+        browser_service_api_key = None
+        if BROWSER_SERVICE_URL:
+            browser_service_api_key = access_secret(BROWSER_SERVICE_API_KEY_SECRET_ID)
+
+        # Log Browser Service configuration status
+        browser_service_enabled = bool(BROWSER_SERVICE_URL and browser_service_api_key)
+        if browser_service_enabled:
+            logger.info(f"Browser Service enabled: URL={BROWSER_SERVICE_URL}, max_scrolls={BROWSER_SERVICE_MAX_SCROLLS}")
+        else:
+            logger.info("Browser Service disabled (no URL/API key configured)")
+
+        journalist = Journalist(
+            persist=persist,
+            scrape_depth=scrape_depth,
+            browserless_url=BROWSER_SERVICE_URL,
+            browserless_token=browser_service_api_key,
+            max_scrolls=BROWSER_SERVICE_MAX_SCROLLS
+        )
         
         # Start timing the scraping operation
         start_time = datetime.now(timezone.utc)
@@ -578,7 +625,7 @@ async def _process_scraping_request(message_data: dict):
                 articles = session.get("articles", [])
                 
                 # Apply metadata from to_scrape.json (or fallbacks for standalone)
-                apply_metadata_to_articles(articles, url_metadata, fallback_region=region)
+                apply_metadata_to_articles(articles, url_metadata, fallback_region=region, fallback_keywords=keywords)
                         
                 all_articles.extend(articles)
                 source_domain = session.get("source_domain", "unknown")

@@ -23,9 +23,19 @@ This relies on the 0.85 similarity threshold producing homogeneous groups. If mi
 
 | Env Var | Default | Description |
 |---------|---------|-------------|
-| `SIMILARITY_THRESHOLD` | 0.85 | Min cosine similarity for grouping |
+| `CROSS_RUN_DEDUP_THRESHOLD_TR` | 0.85 | Cross-run dedup threshold for TR region |
+| `CROSS_RUN_DEDUP_THRESHOLD_EU` | 0.9 | Cross-run dedup threshold for EU region |
+| `GROUPING_THRESHOLD` | 0.8 | Within-run article grouping threshold |
 | `EMBEDDING_MODEL` | text-embedding-004 | Vertex AI embedding model |
-| `VERTEX_AI_MODEL` | gemini-3-pro-preview | LLM for processing |
+
+### Region-Specific Thresholds
+
+Cross-run deduplication uses per-region thresholds to account for different content overlap patterns:
+
+- **TR (Turkish)**: Uses 0.85 - Higher threshold to avoid false positives on transfer news
+- **EU (European)**: Uses 0.9 - European content is more unique, requires stricter dedup
+
+Articles without a region field use the EU threshold (0.9) as fallback.
 
 ## Replaces
 

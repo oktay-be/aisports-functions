@@ -5,13 +5,15 @@ Unified API middleware between UI and GCS.
 Serves: articles, user preferences, config, and triggers for scraper/news-api.
 
 Endpoints:
-  GET  /articles          - Fetch enriched articles
-  GET  /user              - Get user info
-  GET  /user/preferences  - Get user preferences
-  PUT  /user/preferences  - Save user preferences
-  GET  /config/news-api   - Get news API config
-  POST /trigger/scraper   - Trigger scraper via Pub/Sub
-  POST /trigger/news-api  - Trigger news API fetcher via Pub/Sub
+  GET  /articles              - Fetch enriched articles
+  GET  /user                  - Get user info
+  GET  /user/preferences      - Get user preferences
+  PUT  /user/preferences      - Save user preferences
+  GET  /config/news-api       - Get news API config
+  GET  /config/allowed-users  - Get allowed users (admin only)
+  GET  /config/admin-users    - Get current user's admin status
+  POST /trigger/scraper       - Trigger scraper via Pub/Sub
+  POST /trigger/news-api      - Trigger news API fetcher via Pub/Sub
 """
 
 import os
@@ -90,7 +92,7 @@ def access_secret(secret_id: str, version_id: str = "latest") -> str:
         response = secret_client.access_secret_version(request={"name": name})
         return response.payload.data.decode("UTF-8").strip()
     except Exception as e:
-        logger.error(f"Error accessing secret {secret_id}: {e}")
+        logger.error(f"Error accessing secret: {e}")
         return ''
 
 
@@ -306,7 +308,8 @@ def normalize_article(article: Dict[str, Any], content_map: Dict[str, str] = Non
         'region': article.get('region'),
         'summary_translation': article.get('summary_translation'),
         'x_post': article.get('x_post'),
-        'source_type': article.get('source_type', 'scraped')
+        'source_type': article.get('source_type', 'scraped'),
+        'keywords_used': article.get('keywords_used', [])  # For UI keyword highlighting
     }
 
 
@@ -412,6 +415,10 @@ def handle_get_articles(request: Request):
         return error_response('Invalid or missing API key', 401)
 
     region = request.args.get('region', 'all')
+
+    # Route diff region to dedicated handler
+    if region == 'diff':
+        return handle_get_diff(request)
     start_date = request.args.get('startDate')
     end_date = request.args.get('endDate')
     last_n_days = request.args.get('last_n_days', type=int)
@@ -452,6 +459,118 @@ def handle_get_articles(request: Request):
         ]
 
     return json_response(unique_articles)
+
+
+def handle_get_diff(request: Request):
+    """GET /articles?region=diff - Fetch region diff analysis files."""
+    # Validate API key
+    if not validate_api_key(request):
+        return error_response('Invalid or missing API key', 401)
+
+    start_date = request.args.get('startDate')
+    end_date = request.args.get('endDate')
+    last_n_days = request.args.get('last_n_days', type=int)
+
+    # Determine dates
+    if start_date and end_date:
+        dates_to_fetch = get_date_range(start_date, end_date)
+    elif last_n_days and last_n_days > 0:
+        end = datetime.now()
+        start = end - timedelta(days=last_n_days - 1)
+        dates_to_fetch = get_date_range(start.strftime('%Y-%m-%d'), end.strftime('%Y-%m-%d'))
+    else:
+        dates_to_fetch = [datetime.now().strftime('%Y-%m-%d')]
+
+    logger.info(f"[DIFF] Fetching diff files for dates: {dates_to_fetch}")
+
+    # Aggregate results
+    all_diff_results = {
+        'metadata': {
+            'region1': 'eu',
+            'region2': 'tr',
+            'dates': dates_to_fetch,
+            'generated_at': datetime.now().isoformat()
+        },
+        'summary': {
+            'total_region1_articles': 0,
+            'total_region2_articles': 0,
+            'unique_to_region1': 0
+        },
+        'unique_articles': []
+    }
+
+    try:
+        bucket = storage_client.bucket(GCS_BUCKET_NAME)
+
+        for date in dates_to_fetch:
+            diff_prefix = f"ingestion/{date}/"
+            logger.info(f"[DIFF] Searching for diff files: {diff_prefix}")
+
+            blobs = list(bucket.list_blobs(prefix=diff_prefix))
+
+            # Find region_diff files in analysis folders
+            diff_files = [
+                b for b in blobs
+                if '/analysis/region_diff_' in b.name and b.name.endswith('.json')
+            ]
+
+            logger.info(f"[DIFF] Found {len(diff_files)} diff files for {date}")
+
+            for blob in diff_files:
+                try:
+                    content = blob.download_as_text()
+                    diff_data = json.loads(content)
+
+                    # Aggregate summaries
+                    if diff_data.get('summary'):
+                        all_diff_results['summary']['total_region1_articles'] += diff_data['summary'].get('total_region1_articles', 0)
+                        all_diff_results['summary']['total_region2_articles'] += diff_data['summary'].get('total_region2_articles', 0)
+                        all_diff_results['summary']['unique_to_region1'] += diff_data['summary'].get('unique_to_region1', 0)
+
+                    # Collect unique articles
+                    if diff_data.get('unique_articles'):
+                        all_diff_results['unique_articles'].extend(diff_data['unique_articles'])
+
+                    logger.info(f"[DIFF] Loaded {len(diff_data.get('unique_articles', []))} articles from {blob.name}")
+
+                except Exception as e:
+                    logger.error(f"[DIFF] Error processing {blob.name}: {e}")
+
+        # Deduplicate by article_id
+        seen_ids = set()
+        unique_articles = []
+        for article in all_diff_results['unique_articles']:
+            article_id = article.get('article_id')
+            if article_id and article_id not in seen_ids:
+                seen_ids.add(article_id)
+                unique_articles.append(article)
+
+        all_diff_results['unique_articles'] = unique_articles
+
+        logger.info(f"[DIFF] Total unique articles: {len(unique_articles)}")
+
+        # Transform to NewsEntry-compatible format for UI
+        # Use normalize_article for common fields, then add diff-specific metadata
+        news_entries = []
+        for article in unique_articles:
+            # Normalize using same function as EU/TR articles
+            entry = normalize_article(article)
+            # Override region for routing
+            entry['region'] = 'diff'
+            # Add diff-specific metadata
+            entry['_diff_metadata'] = {
+                'max_similarity': article.get('max_similarity', 0),
+                'closest_match': article.get('closest_match'),
+                'closest_match_url': article.get('closest_match_url', ''),
+                'original_region': article.get('original_region', 'eu')
+            }
+            news_entries.append(entry)
+
+        return json_response(news_entries)
+
+    except Exception as e:
+        logger.error(f"[DIFF] Error: {e}")
+        return error_response(f'Failed to fetch diff data: {str(e)}', 500)
 
 
 def handle_get_user(request: Request):
@@ -557,6 +676,31 @@ def handle_get_news_api_config(request: Request):
     except Exception as e:
         logger.error(f"Error loading news API config: {e}")
         return error_response(str(e), 500)
+
+
+def handle_get_allowed_users(request: Request):
+    """GET /config/allowed-users - Get list of allowed users (admin only)."""
+    user = verify_google_token(request)
+    if not user:
+        return error_response('Invalid or missing token', 401)
+
+    if not is_user_admin(user['email']):
+        return error_response('Admin access required', 403)
+
+    allowed_users = load_allowed_users()
+    return json_response({'allowed_users': allowed_users})
+
+
+def handle_get_admin_status(request: Request):
+    """GET /config/admin-users - Get current user's admin status."""
+    user = verify_google_token(request)
+    if not user:
+        return error_response('Invalid or missing token', 401)
+
+    return json_response({
+        'email': user['email'],
+        'isAdmin': is_user_admin(user['email'])
+    })
 
 
 def handle_trigger_scraper(request: Request):
@@ -674,7 +818,15 @@ def main(request: Request):
     elif path == '/config/news-api':
         if method == 'GET':
             return handle_get_news_api_config(request)
-    
+
+    elif path == '/config/allowed-users':
+        if method == 'GET':
+            return handle_get_allowed_users(request)
+
+    elif path == '/config/admin-users':
+        if method == 'GET':
+            return handle_get_admin_status(request)
+
     elif path == '/trigger/scraper':
         if method == 'POST':
             return handle_trigger_scraper(request)

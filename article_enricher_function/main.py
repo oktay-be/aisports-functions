@@ -116,7 +116,14 @@ You MUST preserve the following fields exactly as they appear in the input:
 - Fans: `fan-activity`, `fan-rivalry`, `fan-protest`
 - Rivalry: `team-rivalry`, `personal-rivalry`, `derby`
 - Media: `interviews`, `social-media`, `gossip-entertainment`, `player-statement`, `club-statement`
+
+**Keyword Tags (REQUIRED when article mentions these):**
 {formatted_keywords}
+
+## IMPORTANT: Keyword-Based Tagging
+For each article, check the `keywords_used` field in the input. If the article content mentions any of these keywords,
+you MUST add that keyword as a category tag with confidence 0.8-0.95 based on how prominently it appears.
+Example: if keywords_used=["fenerbahce"] and article mentions Fenerbahce → add {{"tag": "fenerbahce", "confidence": 0.9}}
 
 ## x_post Rules (CRITICAL)
 - ALWAYS in Turkish
@@ -127,9 +134,9 @@ You MUST preserve the following fields exactly as they appear in the input:
 ## Output Format
 Return JSON with format:
 ```json
-{
+{{
     "enriched_articles": [
-        {
+        {{
             "article_id": "original_id",
             "original_url": "http://...",
             "merged_from_urls": ["http://...", "http://..."],
@@ -137,27 +144,27 @@ Return JSON with format:
             "summary": "...",
             "x_post": "Turkish X post with #hashtags",
             "summary_translation": "Turkish translation or null",
-            "categories": [{"tag": "transfers-confirmed", "confidence": 0.9}],
-            "key_entities": {
+            "categories": [{{"tag": "transfers-confirmed", "confidence": 0.9}}],
+            "key_entities": {{
                 "teams": ["Fenerbahce"],
                 "players": ["Player Name"],
                 "amounts": ["10M EUR"],
                 "dates": ["2025-01-15"],
                 "competitions": ["Super Lig"],
                 "locations": ["Istanbul"]
-            },
+            }},
             "confidence": 0.85,
             "content_quality": "high"
-        }
+        }}
     ]
-}
+}}
 
 ## Input
 The articles to process are provided in the attached JSON file with this structure:
 ```json
-{
+{{
     "articles": [
-        {
+        {{
             "article_id": "unique_id",
             "title": "Article title",
             "body": "Full article body...",
@@ -166,9 +173,9 @@ The articles to process are provided in the attached JSON file with this structu
             "source": "example.com",
             "publish_date": "2025-01-15T10:00:00Z",
             "keywords_used": ["kw1", "kw2", ...]
-        }
+        }}
     ]
-}
+}}
 ```
 
 ## CRITICAL INSTRUCTIONS
@@ -284,13 +291,13 @@ class ArticleEnricher:
                 {
                     "article_id": a.get('article_id', ''),
                     "title": a.get('title', ''),
-                    "body": (a.get('body', '') or '')[:3000],
+                    "body": (a.get('body', '') or '')[:8000],
                     "url": a.get('original_url', a.get('url', '')),
                     "merged_from_urls": a.get('merged_from_urls', []),
                     "source": a.get('source', ''),
                     "publish_date": a.get('publish_date', ''),
                     # Keywords that matched this article - LLM should add these as tags
-                    "keywords_used": a.get('keywords_used', a.get('keywords_matched', [])),
+                    "keywords_used": a.get('keywords_used', []),
                     # Passthrough fields preserved in input file for recovery during transform
                     # (not included in LLM prompt/schema - restored after enrichment)
                     "language": a.get('language') or a.get('lang') or '',
@@ -316,7 +323,7 @@ class ArticleEnricher:
         
         return gcs_uri
 
-    def create_batch_request(self, articles: List[Dict[str, Any]], 
+    def create_batch_request(self, articles: List[Dict[str, Any]],
                               run_folder: str, source_type: str, branch_type: str) -> List[Dict[str, Any]]:
         """
         Create batch request entries for all articles using fileData pattern.
@@ -332,6 +339,23 @@ class ArticleEnricher:
             List of batch request entries (one per article batch)
         """
         batch_requests = []
+
+        # Collect all unique keywords from articles for prompt formatting
+        all_keywords = set()
+        for article in articles:
+            keywords = article.get('keywords_used', [])
+            if keywords:
+                all_keywords.update(k.lower() for k in keywords if isinstance(k, str))
+
+        # Format keywords as tag list for the prompt
+        if all_keywords:
+            formatted_keywords = "- " + ", ".join(f"`{kw}`" for kw in sorted(all_keywords))
+        else:
+            formatted_keywords = "- (none specified)"
+
+        # Format the prompt with actual keywords
+        formatted_prompt = ENRICHMENT_PROMPT.format(formatted_keywords=formatted_keywords)
+        logger.info(f"Formatted prompt with keywords: {sorted(all_keywords)}")
 
         # Group articles into batches of 10 for efficient processing
         batch_size = 10
@@ -350,7 +374,7 @@ class ArticleEnricher:
                         {
                             "role": "user",
                             "parts": [
-                                {"text": ENRICHMENT_PROMPT},
+                                {"text": formatted_prompt},
                                 {
                                     "fileData": {
                                         "fileUri": batch_gcs_uri,

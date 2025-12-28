@@ -1,3 +1,36 @@
+# =============================================================================
+# Deploy Scraper Function
+# =============================================================================
+# Cloud Function that scrapes news articles from configured URLs using the
+# journ4list library. Triggered by Pub/Sub messages from gcs-api.
+#
+# AUTHENTICATION:
+#   - Uses Workload Identity Federation (no service account keys stored in GitHub)
+#   - Service account: GCP_SERVICE_ACCOUNT
+#
+# SECRET MANAGEMENT:
+#   - Browser Service API key stored in GCP Secret Manager as 'BROWSER_SERVICE_API_KEY'
+#   - The function reads secrets at runtime via Secret Manager API
+#   - NO secrets are passed as environment variables in this workflow
+#   - BROWSER_SERVICE_URL is a variable (not secret) - it's just a public URL
+#
+# GITHUB VARIABLES USED:
+#   - GCP_PROJECT_NUMBER: GCP project number for WIF
+#   - WIF_POOL_ID: Workload Identity Pool ID
+#   - WIF_PROVIDER_ID: Workload Identity Provider ID
+#   - GCP_SERVICE_ACCOUNT: Service account email
+#   - GOOGLE_CLOUD_PROJECT: GCP project ID
+#   - REGION: Deployment region
+#   - GCS_BUCKET_NAME: GCS bucket for storing scraped data
+#   - SCRAPING_REQUESTS_TOPIC: Pub/Sub topic for incoming requests
+#   - SESSION_DATA_CREATED_TOPIC: Pub/Sub topic for output notifications
+#   - INGESTION_PREFIX: GCS prefix for ingestion data
+#   - FUNCTION_ENVIRONMENT: Environment name
+#   - BROWSER_SERVICE_URL: URL of browser-render-service (for JS-heavy pages)
+#
+# TRIGGER: Pub/Sub message on scraping-requests topic
+# =============================================================================
+
 name: Deploy Scraper Function
 
 on:
@@ -5,6 +38,7 @@ on:
     branches:
       - main
       - dev
+      - 'feature/**'
     paths:
       - 'scraper_function/**'
       - 'shared_libs/**'
@@ -13,8 +47,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  id-token: write # This is crucial for Workload Identity Federation
-  contents: read # Allow checkout action to read the repository
+  id-token: write  # Required for Workload Identity Federation
+  contents: read   # Required to checkout repository
 
 jobs:
   deploy:
@@ -24,13 +58,14 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # Authenticate using Workload Identity Federation (keyless authentication)
     - name: Authenticate to Google Cloud (Workload Identity Federation)
       uses: google-github-actions/auth@v2
       with:
         workload_identity_provider: 'projects/${{ vars.GCP_PROJECT_NUMBER }}/locations/global/workloadIdentityPools/${{ vars.WIF_POOL_ID }}/providers/${{ vars.WIF_PROVIDER_ID }}'
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
         export_environment_variables: true
-        
+
     - name: Deploy Cloud Function
       uses: google-github-actions/deploy-cloud-functions@v3
       with:
@@ -47,6 +82,8 @@ jobs:
         event_trigger_type: google.cloud.pubsub.topic.v1.messagePublished
         event_trigger_pubsub_topic: projects/${{ vars.GOOGLE_CLOUD_PROJECT }}/topics/${{ vars.SCRAPING_REQUESTS_TOPIC }}
         region: ${{ vars.REGION }}
+        # Note: BROWSER_SERVICE_API_KEY is read from GCP Secret Manager at runtime
+        # Only non-sensitive config is passed as environment variables
         environment_variables: |
           GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
           GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
@@ -54,4 +91,6 @@ jobs:
           INGESTION_PREFIX=${{ vars.INGESTION_PREFIX }}
           JOURNALIST_LOG_LEVEL=INFO
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
+          BROWSER_SERVICE_URL=${{ vars.BROWSER_SERVICE_URL }}
+          BROWSER_SERVICE_MAX_SCROLLS=20
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}

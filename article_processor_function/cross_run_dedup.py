@@ -3,19 +3,27 @@ Cross-Run Deduplication Service
 
 Compares articles against embeddings from previous runs within the same day.
 Drops articles that are too similar to previously processed articles.
+
+Supports region-specific thresholds (e.g., EU: 0.9, TR: 0.7) to account for
+different content overlap characteristics across regions.
 """
 
 import json
 import logging
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Tuple, Set
+from typing import List, Dict, Any, Tuple, Set, Optional
 import numpy as np
 from google.cloud import storage
 
 logger = logging.getLogger(__name__)
 
-# Cross-run dedup threshold - drop if similarity exceeds this
-CROSS_RUN_DEDUP_THRESHOLD = 0.7
+# Region-specific defaults (can be overridden via constructor)
+# TR: 0.85 - Turkish content needs higher threshold to avoid false positives on transfer news
+# EU: 0.9 - European content is more unique, requires stricter dedup
+DEFAULT_REGION_THRESHOLDS = {
+    'tr': 0.85,
+    'eu': 0.9,
+}
 
 
 class CrossRunDeduplicator:
@@ -25,13 +33,16 @@ class CrossRunDeduplicator:
     Loads embeddings from all previous run folders that have completed
     (identified by presence of embeddings/*.json files) and compares
     new articles against them.
+    
+    Supports region-specific thresholds to handle varying content overlap
+    characteristics across different regions.
     """
 
     def __init__(
         self,
         storage_client: storage.Client,
         bucket_name: str,
-        threshold: float = CROSS_RUN_DEDUP_THRESHOLD
+        region_thresholds: Optional[Dict[str, float]] = None
     ):
         """
         Initialize the cross-run deduplicator.
@@ -39,12 +50,32 @@ class CrossRunDeduplicator:
         Args:
             storage_client: GCS storage client
             bucket_name: GCS bucket name
-            threshold: Similarity threshold for deduplication (default 0.7)
+            region_thresholds: Optional dict mapping region codes to thresholds
+                              e.g., {'tr': 0.85, 'eu': 0.9}
         """
         self.storage_client = storage_client
         self.bucket_name = bucket_name
-        self.threshold = threshold
-        logger.info(f"CrossRunDeduplicator initialized: threshold={threshold}")
+        self.region_thresholds = region_thresholds or DEFAULT_REGION_THRESHOLDS.copy()
+        # Fallback for unknown regions uses EU threshold (stricter)
+        self.fallback_threshold = self.region_thresholds.get('eu', 0.9)
+        logger.info(
+            f"CrossRunDeduplicator initialized: region_thresholds={self.region_thresholds}, "
+            f"fallback_threshold={self.fallback_threshold}"
+        )
+
+    def get_threshold_for_region(self, region: Optional[str]) -> float:
+        """
+        Get the deduplication threshold for a specific region.
+
+        Args:
+            region: Region code (e.g., 'tr', 'eu') or None
+
+        Returns:
+            Threshold for the region, or fallback threshold if region not configured
+        """
+        if region and region.lower() in self.region_thresholds:
+            return self.region_thresholds[region.lower()]
+        return self.fallback_threshold
 
     def list_previous_embedding_files(
         self,
@@ -88,15 +119,20 @@ class CrossRunDeduplicator:
         logger.info(f"Found {len(embedding_files)} embedding files from previous runs")
         return embedding_files
 
-    def load_embeddings_from_gcs(self, blob_path: str) -> Tuple[List[str], np.ndarray]:
+    def load_embeddings_from_gcs(
+        self,
+        blob_path: str,
+        min_content_length: int = 50
+    ) -> Tuple[List[str], List[str], List[str], np.ndarray]:
         """
-        Load embeddings from a GCS JSON file.
+        Load embeddings from a GCS JSON file, filtering out empty articles.
 
         Args:
             blob_path: GCS blob path to embeddings file
+            min_content_length: Minimum content length to include (default 50)
 
         Returns:
-            Tuple of (article_ids, embeddings_array)
+            Tuple of (article_ids, urls, titles, embeddings_array)
         """
         try:
             bucket = self.storage_client.bucket(self.bucket_name)
@@ -105,58 +141,98 @@ class CrossRunDeduplicator:
             data = json.loads(content)
 
             article_ids = data.get("article_ids", [])
-            embeddings = np.array(data.get("embeddings", []))
+            urls = data.get("urls", [])  # May be empty for old embedding files
+            titles = data.get("titles", [])  # May be empty for old embedding files
+            content_lengths = data.get("content_lengths", [])  # May be empty
+            embeddings_list = data.get("embeddings", [])
 
+            # If content_lengths available, filter out empty/short articles
+            if content_lengths and len(content_lengths) == len(article_ids):
+                filtered_ids = []
+                filtered_urls = []
+                filtered_titles = []
+                filtered_embeddings = []
+
+                skipped = 0
+                for i, (aid, url, emb, clen) in enumerate(zip(
+                    article_ids,
+                    urls if urls else [''] * len(article_ids),
+                    embeddings_list,
+                    content_lengths
+                )):
+                    if clen >= min_content_length:
+                        filtered_ids.append(aid)
+                        filtered_urls.append(url)
+                        filtered_titles.append(titles[i] if i < len(titles) else '')
+                        filtered_embeddings.append(emb)
+                    else:
+                        skipped += 1
+
+                if skipped > 0:
+                    logger.info(f"Filtered out {skipped} articles with content < {min_content_length} chars from {blob_path}")
+
+                embeddings = np.array(filtered_embeddings) if filtered_embeddings else np.array([])
+                return filtered_ids, filtered_urls, filtered_titles, embeddings
+
+            # No content_lengths - return all (backwards compatibility)
+            embeddings = np.array(embeddings_list)
             logger.debug(f"Loaded {len(article_ids)} embeddings from {blob_path}")
-            return article_ids, embeddings
+            return article_ids, urls if urls else [''] * len(article_ids), titles, embeddings
 
         except Exception as e:
             logger.error(f"Error loading embeddings from {blob_path}: {e}")
-            return [], np.array([])
+            return [], [], [], np.array([])
 
     def load_all_previous_embeddings(
         self,
         date_str: str,
         current_run_id: str
-    ) -> Tuple[List[str], np.ndarray]:
+    ) -> Tuple[List[str], List[str], List[str], np.ndarray]:
         """
         Load and combine all embeddings from previous runs.
+
+        Filters out articles with empty/short content when content_lengths
+        are available in the embedding files.
 
         Args:
             date_str: Date string (YYYY-MM-DD)
             current_run_id: Current run ID to exclude
 
         Returns:
-            Tuple of (all_article_ids, combined_embeddings_array)
+            Tuple of (all_article_ids, all_urls, all_titles, combined_embeddings_array)
         """
         embedding_files = self.list_previous_embedding_files(date_str, current_run_id)
 
         if not embedding_files:
             logger.info("No previous embeddings found")
-            return [], np.array([])
+            return [], [], [], np.array([])
 
         all_article_ids = []
+        all_urls = []
+        all_titles = []
         all_embeddings = []
 
         for blob_path in embedding_files:
-            article_ids, embeddings = self.load_embeddings_from_gcs(blob_path)
+            article_ids, urls, titles, embeddings = self.load_embeddings_from_gcs(blob_path)
             if len(article_ids) > 0 and embeddings.size > 0:
                 all_article_ids.extend(article_ids)
+                all_urls.extend(urls)
+                all_titles.extend(titles if titles else [''] * len(article_ids))
                 all_embeddings.append(embeddings)
 
         if not all_embeddings:
-            return [], np.array([])
+            return [], [], [], np.array([])
 
         combined_embeddings = np.vstack(all_embeddings)
         logger.info(f"Loaded {len(all_article_ids)} total embeddings from {len(embedding_files)} files")
 
-        return all_article_ids, combined_embeddings
+        return all_article_ids, all_urls, all_titles, combined_embeddings
 
     def compute_max_similarity(
         self,
         new_embeddings: np.ndarray,
         previous_embeddings: np.ndarray
-    ) -> np.ndarray:
+    ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Compute max similarity of each new embedding against all previous embeddings.
 
@@ -165,10 +241,12 @@ class CrossRunDeduplicator:
             previous_embeddings: Array of shape (n_prev, dim)
 
         Returns:
-            Array of shape (n_new,) with max similarity for each new embedding
+            Tuple of:
+            - Array of shape (n_new,) with max similarity for each new embedding
+            - Array of shape (n_new,) with index of best matching previous embedding
         """
         if previous_embeddings.size == 0:
-            return np.zeros(len(new_embeddings))
+            return np.zeros(len(new_embeddings)), np.zeros(len(new_embeddings), dtype=int)
 
         # Normalize both sets
         new_norms = np.linalg.norm(new_embeddings, axis=1, keepdims=True)
@@ -182,10 +260,11 @@ class CrossRunDeduplicator:
         # Compute similarity matrix: (n_new, n_prev)
         similarity_matrix = np.dot(new_normalized, prev_normalized.T)
 
-        # Get max similarity for each new embedding
+        # Get max similarity and its index for each new embedding
         max_similarities = np.max(similarity_matrix, axis=1)
+        max_indices = np.argmax(similarity_matrix, axis=1)
 
-        return max_similarities
+        return max_similarities, max_indices
 
     def deduplicate(
         self,
@@ -197,8 +276,11 @@ class CrossRunDeduplicator:
         """
         Deduplicate articles against previous runs.
 
+        Uses region-specific thresholds when available. Each article's region
+        is checked to determine the appropriate threshold.
+
         Args:
-            articles: List of article dictionaries
+            articles: List of article dictionaries (may contain 'region' field)
             embeddings: Embeddings for the articles (same order)
             date_str: Date string (YYYY-MM-DD)
             current_run_id: Current run ID
@@ -209,8 +291,8 @@ class CrossRunDeduplicator:
         if not articles:
             return [], np.array([]), []
 
-        # Load previous embeddings
-        prev_article_ids, prev_embeddings = self.load_all_previous_embeddings(
+        # Load previous embeddings (now includes URLs and titles, filters empty articles)
+        prev_article_ids, prev_urls, prev_titles, prev_embeddings = self.load_all_previous_embeddings(
             date_str, current_run_id
         )
 
@@ -218,64 +300,106 @@ class CrossRunDeduplicator:
             logger.info("No previous embeddings - keeping all articles")
             return articles, embeddings, []
 
-        # Compute max similarity against previous articles
-        max_similarities = self.compute_max_similarity(embeddings, prev_embeddings)
+        # Compute max similarity against previous articles (now returns indices too)
+        max_similarities, max_indices = self.compute_max_similarity(embeddings, prev_embeddings)
 
         kept_articles = []
         kept_embeddings = []
         dropped_log = []
 
+        # Track stats by region for logging
+        region_stats = {}
+
         for i, (article, similarity) in enumerate(zip(articles, max_similarities)):
-            if similarity >= self.threshold:
+            # Get region-specific threshold
+            region = article.get('region')
+            threshold = self.get_threshold_for_region(region)
+
+            # Track region stats
+            region_key = region or 'unknown'
+            if region_key not in region_stats:
+                region_stats[region_key] = {'threshold': threshold, 'kept': 0, 'dropped': 0}
+
+            if similarity >= threshold:
+                # Get the URL of the matched article
+                matched_idx = int(max_indices[i])
+                matched_url = prev_urls[matched_idx] if matched_idx < len(prev_urls) else None
+
                 # Drop - too similar to previous article
                 dropped_log.append({
                     "article_id": article.get("article_id", "unknown"),
                     "title": article.get("title", "")[:100],
                     "url": article.get("url", ""),
+                    "matched_article_url": matched_url,
+                    "region": region,
                     "max_similarity": float(similarity),
-                    "threshold": self.threshold,
+                    "threshold": threshold,
                     "reason": "cross_run_duplicate"
                 })
+                region_stats[region_key]['dropped'] += 1
                 logger.debug(
-                    f"Dropping article (sim={similarity:.3f}): {article.get('title', '')[:50]}"
+                    f"Dropping article (sim={similarity:.3f}, threshold={threshold}, region={region}): "
+                    f"{article.get('title', '')[:50]}"
                 )
             else:
                 kept_articles.append(article)
                 kept_embeddings.append(embeddings[i])
+                region_stats[region_key]['kept'] += 1
 
         kept_embeddings_array = np.array(kept_embeddings) if kept_embeddings else np.array([])
 
+        # Log overall stats
         logger.info(
             f"Cross-run dedup: {len(articles)} -> {len(kept_articles)} articles "
             f"({len(dropped_log)} dropped)"
         )
+        
+        # Log per-region stats
+        for region, stats in region_stats.items():
+            logger.info(
+                f"  Region '{region}': threshold={stats['threshold']}, "
+                f"kept={stats['kept']}, dropped={stats['dropped']}"
+            )
 
         return kept_articles, kept_embeddings_array, dropped_log
 
     def save_embeddings(
         self,
         article_ids: List[str],
+        urls: List[str],
         embeddings: np.ndarray,
-        output_path: str
+        output_path: str,
+        titles: Optional[List[str]] = None,
+        content_lengths: Optional[List[int]] = None
     ) -> str:
         """
         Save embeddings to GCS for future cross-run deduplication.
 
         Args:
             article_ids: List of article IDs (same order as embeddings)
+            urls: List of article URLs (same order as embeddings)
             embeddings: Numpy array of embeddings
             output_path: GCS blob path for output
+            titles: Optional list of article titles (for filtering and debugging)
+            content_lengths: Optional list of content lengths (to filter empty articles)
 
         Returns:
             GCS URI of saved file
         """
         data = {
             "article_ids": article_ids,
+            "urls": urls,
             "embeddings": embeddings.tolist(),
             "count": len(article_ids),
             "embedding_dim": embeddings.shape[1] if embeddings.ndim > 1 else 0,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
+
+        # Add optional metadata for better filtering
+        if titles:
+            data["titles"] = titles
+        if content_lengths:
+            data["content_lengths"] = content_lengths
 
         bucket = self.storage_client.bucket(self.bucket_name)
         blob = bucket.blob(output_path)

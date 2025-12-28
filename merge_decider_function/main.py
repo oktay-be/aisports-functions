@@ -79,22 +79,28 @@ MERGE_DECISION_PROMPT = """You are a sports news editor deciding whether similar
 
 ## Task
 Analyze the following groups of similar articles and decide for each:
-- **MERGE**: If they cover the SAME event (same match, same transfer, same announcement)
-- **KEEP_BOTH**: If they cover DIFFERENT angles or aspects of the news
+- **MERGE**: If ALL articles cover the SAME event (same match, same transfer, same announcement)
+- **PARTIAL_MERGE**: If MOST articles are duplicates but 1-2 have unique angles worth keeping
+- **KEEP_ALL**: If articles cover DIFFERENT angles or aspects worth preserving separately
 
 ## Decision Criteria
 
 ### MERGE when:
-- Articles report the exact same match result
-- Articles announce the same transfer deal
-- Articles quote the same press conference
-- Articles are essentially duplicates with minor wording differences
+- ALL articles report the exact same event with no unique perspectives
+- ALL articles announce the same transfer deal with same details
+- ALL articles quote the same press conference with same quotes
+- ALL articles are essentially duplicates with minor wording differences
 
-### KEEP_BOTH when:
-- One is a match report, another is player interview
-- One is breaking news, another is in-depth analysis
-- Articles cover different aspects of the same broader topic
-- Articles have significantly different perspectives or sources
+### PARTIAL_MERGE when (IMPORTANT - use this for mixed groups):
+- Most articles (e.g., 6 out of 8) are duplicates of the same wire story
+- But 1-2 articles have unique content: different sources, exclusive quotes, deeper analysis
+- Example: 7 Reuters reprints + 1 original investigative piece = PARTIAL_MERGE
+- The majority duplicates get merged, the unique article(s) stay separate
+
+### KEEP_ALL when:
+- Articles have genuinely different perspectives that all add value
+- One is match report, another is player interview, another is tactical analysis
+- Each article brings unique information not found in others
 
 ## Output Format
 Return ONLY valid JSON with decisions for ALL groups:
@@ -103,12 +109,14 @@ Return ONLY valid JSON with decisions for ALL groups:
   "decisions": [
     {
       "group_id": 1,
-      "decision": "MERGE" or "KEEP_BOTH",
+      "decision": "MERGE" or "PARTIAL_MERGE" or "KEEP_ALL",
       "reason": "Brief explanation",
-      "primary_article_id": "ID of best article if MERGE, null if KEEP_BOTH",
-      "primary_article_url": "URL of best article if MERGE, null if KEEP_BOTH",
-      "merged_article_ids": ["IDs of merged articles"] or [],
-      "merged_from_urls": ["URLs of merged articles"] or []
+      "primary_article_id": "ID of best article for merged set (required for MERGE/PARTIAL_MERGE)",
+      "primary_article_url": "URL of best article for merged set",
+      "merged_article_ids": ["IDs of articles being merged into primary"],
+      "merged_from_urls": ["URLs of articles being merged into primary"],
+      "kept_separate_ids": ["IDs of unique articles to keep separate (for PARTIAL_MERGE)"],
+      "kept_separate_urls": ["URLs of unique articles to keep separate (for PARTIAL_MERGE)"]
     }
   ]
 }
@@ -137,7 +145,8 @@ The article groups to analyze are provided in the attached JSON file with this s
 ```
 
 Analyze ALL groups in the attached file and return decisions for each.
-For MERGE decisions, set primary_article_url to the URL of the best article, and merged_from_urls to the URLs of ALL articles being merged (including the primary).
+For MERGE/PARTIAL_MERGE: set primary_article_url to the best article, merged_from_urls to ALL articles being merged.
+For PARTIAL_MERGE: also set kept_separate_urls to the unique articles that should NOT be merged.
 """
 
 

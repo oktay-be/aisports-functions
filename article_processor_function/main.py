@@ -60,8 +60,13 @@ VERTEX_AI_LOCATION = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
 
 # Embedding and grouping configuration
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'text-embedding-004')
-CROSS_RUN_DEDUP_THRESHOLD = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD', '0.7'))
 GROUPING_THRESHOLD = float(os.getenv('GROUPING_THRESHOLD', '0.8'))
+
+# Region-specific cross-run dedup thresholds
+# TR: 0.85 - Turkish content needs higher threshold to avoid false positives on transfer news
+# EU: 0.9 - European content more unique, stricter dedup
+CROSS_RUN_DEDUP_THRESHOLD_TR = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD_TR', '0.85'))
+CROSS_RUN_DEDUP_THRESHOLD_EU = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD_EU', '0.9'))
 
 # Language normalization map
 LANGUAGE_MAP = {
@@ -157,10 +162,18 @@ class ArticleProcessor:
                 # Initialize services
                 self.embedding_service = EmbeddingService(self.genai_client)
                 self.grouping_service = GroupingService(threshold=GROUPING_THRESHOLD)
+                
+                # Build region-specific threshold map
+                region_thresholds = {
+                    'tr': CROSS_RUN_DEDUP_THRESHOLD_TR,
+                    'eu': CROSS_RUN_DEDUP_THRESHOLD_EU,
+                }
+                logger.info(f"Region thresholds configured: {region_thresholds}")
+
                 self.deduplicator = CrossRunDeduplicator(
                     storage_client=self.storage_client,
                     bucket_name=GCS_BUCKET_NAME,
-                    threshold=CROSS_RUN_DEDUP_THRESHOLD
+                    region_thresholds=region_thresholds
                 )
 
             except Exception as e:
@@ -341,8 +354,14 @@ class ArticleProcessor:
 
         # Step 4: Save embeddings for future cross-run dedup
         article_ids = [a.get('article_id', '') for a in articles]
+        article_urls = [a.get('url', '') for a in articles]
+        article_titles = [a.get('title', '') for a in articles]
+        article_content_lengths = [len(a.get('body', '') or a.get('content', '')) for a in articles]
         embeddings_path = f"{run_folder}/embeddings/{source_type}_embeddings.json"
-        self.deduplicator.save_embeddings(article_ids, embeddings, embeddings_path)
+        self.deduplicator.save_embeddings(
+            article_ids, article_urls, embeddings, embeddings_path,
+            titles=article_titles, content_lengths=article_content_lengths
+        )
 
         # Step 5: Cross-run deduplication
         logger.info("Cross-run deduplication...")
@@ -359,7 +378,10 @@ class ArticleProcessor:
             self.save_json_to_gcs({
                 "dropped_articles": dedup_log,
                 "count": len(dedup_log),
-                "threshold": CROSS_RUN_DEDUP_THRESHOLD,
+                "region_thresholds": {
+                    "tr": CROSS_RUN_DEDUP_THRESHOLD_TR,
+                    "eu": CROSS_RUN_DEDUP_THRESHOLD_EU
+                },
                 "created_at": datetime.now(timezone.utc).isoformat()
             }, dedup_log_path)
 
@@ -408,6 +430,8 @@ class ArticleProcessor:
             # Don't default language - preserve from source or leave empty
             normalized.setdefault('language', '')
             normalized.setdefault('x_post', '')
+            # Preserve keywords that matched this article (for UI highlighting)
+            normalized.setdefault('keywords_used', [])
             # Derive region from language if not set: tr -> tr, everything else -> eu
             if 'region' not in normalized or not normalized.get('region'):
                 lang = normalized.get('language', '')
@@ -486,7 +510,8 @@ class ArticleProcessor:
             "grouped_article_count": sum(len(g['articles']) for g in grouped_articles),
             "output_files": outputs,
             "thresholds": {
-                "cross_run_dedup": CROSS_RUN_DEDUP_THRESHOLD,
+                "cross_run_dedup_tr": CROSS_RUN_DEDUP_THRESHOLD_TR,
+                "cross_run_dedup_eu": CROSS_RUN_DEDUP_THRESHOLD_EU,
                 "grouping": GROUPING_THRESHOLD
             },
             "created_at": datetime.now(timezone.utc).isoformat()

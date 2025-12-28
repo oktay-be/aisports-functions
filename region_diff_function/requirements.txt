@@ -1,0 +1,9 @@
+# Region Diff Function Dependencies
+# Cloud Functions framework
+functions-framework>=3.0.0
+
+# Google Cloud
+google-cloud-storage>=2.10.0
+
+# Data Processing
+numpy>=1.24.0

@@ -1,6 +1,7 @@
 google-cloud-pubsub==2.31.0
 google-cloud-storage==3.2.0
-journ4list==0.12.0
+google-cloud-secret-manager==2.21.1
+journ4list==0.13.0
 google-api-core[grpc]==2.25.1
 python-dotenv==1.0.0
 werkzeug==3.1.4
