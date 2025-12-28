@@ -91,14 +91,15 @@ This will publish test messages to the `scraping-requests` topic and trigger the
 
 ### Automated Deployment (Recommended)
 
-The function is automatically deployed via GitHub Actions when changes are pushed to the `main` branch. The workflow file is located at `.github/workflows/deploy-scraper-function.yml`.
+The function is automatically deployed via GitHub Actions when changes are pushed to `dev` or `feature/*` branches. The workflow file is located at `.github/workflows/deploy-scraper-function.yml`.
 
-**Required GitHub Secrets:**
-- `GOOGLE_APPLICATION_CREDENTIALS_BASE64` - Base64 encoded service account key
+**Authentication:** Uses Workload Identity Federation (keyless) - no service account keys required.
 
 The deployment workflow is triggered when:
 - Files in `scraper_function/` are modified
-- Files in `shared_libs/` are modified (when created)
+- Files in `shared_libs/` are modified
+
+For production deployments to `main`, use `deploy-all.yml` workflow.
 
 ### Prerequisites for Manual Deployment
 
@@ -205,9 +206,21 @@ Results are saved in:
 │   │   │   │   ├── session_data_<domain>_<session_id>.json
 ```
 
-## Next Steps
+## Pipeline Position
 
-After the scraper function is deployed and tested, proceed to implement:
-1. **Batch Builder Function** - Aggregates session data for batch processing
-2. **AI Processor Function** - Handles batch AI processing
-3. **Result Processor Function** - Processes AI results and stores final outputs
+The scraper function outputs trigger the downstream processing pipeline:
+
+```
+scraper_function → article_processor_function → merge_decider_function → article_enricher_function
+      │                      │                          │                         │
+      ▼                      ▼                          ▼                         ▼
+scraped_*.json        singleton_*.json           decision_*.json          enriched_*.json
+                      grouped_*.json
+```
+
+## Related Functions
+
+- **news_api_fetcher_function**: Upstream - may trigger scraper for incomplete articles via `to_scrape.json`
+- **article_processor_function**: Downstream - processes scraped articles (dedup, group)
+- **merge_decider_function**: Downstream - LLM merge decisions on grouped articles
+- **article_enricher_function**: Downstream - generates summaries, translations, X posts

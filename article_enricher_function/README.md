@@ -179,3 +179,4 @@ The function uses the `fileData` pattern for efficient batch processing:
 - **article_processor_function**: Upstream - creates `singleton_*.json` and `grouped_*.json` files
 - **merge_decider_function**: Upstream - creates `decision_*.json` files from grouped articles
 - **jsonl_transformer_function**: Downstream - processes batch results
+- **region_diff_function**: Downstream - triggered by `enriched_*.json` to find EU-only stories

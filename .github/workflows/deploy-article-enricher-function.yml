@@ -90,6 +90,7 @@ jobs:
       uses: google-github-actions/deploy-cloud-functions@v3
       with:
         name: article-enricher
+        description: '${{ env.APP_VERSION }}'
         runtime: python312
         region: ${{ vars.REGION }}
         source_dir: article_enricher_function

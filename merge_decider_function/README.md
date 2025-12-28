@@ -167,3 +167,4 @@ The function uses the `fileData` pattern for efficient batch processing:
 - **article_processor_function**: Upstream - creates `grouped_*.json` files from similarity grouping
 - **jsonl_transformer_function**: Downstream - processes batch results and applies merge decisions
 - **article_enricher_function**: Downstream - enriches merged/separated articles
+- **region_diff_function**: Downstream - analyzes EU vs TR coverage differences on enriched articles

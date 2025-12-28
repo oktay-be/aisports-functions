@@ -81,6 +81,7 @@ jobs:
       uses: google-github-actions/deploy-cloud-functions@v3
       with:
         name: source-discoverer
+        description: '${{ env.APP_VERSION }}'
         runtime: python312
         memory: 256Mi
         cpu: 1

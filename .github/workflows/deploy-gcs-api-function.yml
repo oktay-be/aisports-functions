@@ -90,6 +90,7 @@ jobs:
       uses: google-github-actions/deploy-cloud-functions@v3
       with:
         name: gcs-api
+        description: '${{ env.APP_VERSION }}'
         runtime: python312
         region: ${{ vars.REGION }}
         source_dir: gcs_api_function

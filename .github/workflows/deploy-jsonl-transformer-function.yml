@@ -87,6 +87,7 @@ jobs:
       uses: google-github-actions/deploy-cloud-functions@v3
       with:
         name: jsonl-transformer
+        description: '${{ env.APP_VERSION }}'
         runtime: python312
         region: ${{ vars.REGION }}
         source_dir: jsonl_transformer_function
