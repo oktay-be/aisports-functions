@@ -303,3 +303,156 @@ class TestNewsAggregatorExtractDomain:
         domain = aggregator._extract_domain("")
         
         assert domain == "Unknown"
+
+    def test_extract_domain_with_port(self):
+        """Test extracting domain from URL with port."""
+        aggregator = NewsAggregator()
+        domain = aggregator._extract_domain("https://localhost:8080/page")
+        
+        assert domain is not None
+
+    def test_extract_domain_subdomains(self):
+        """Test extracting domain from URL with subdomains."""
+        aggregator = NewsAggregator()
+        domain = aggregator._extract_domain("https://news.sports.example.com/article")
+        
+        # Should return first part of domain
+        assert domain is not None
+
+
+class TestNewsAggregatorGetDateRangeTimeRanges:
+    """Tests for different time ranges in get_date_range."""
+
+    def test_get_date_range_last_hour(self):
+        """Test getting last hour date range."""
+        aggregator = NewsAggregator()
+        aggregator.configure(time_range="last_hour")
+        
+        date_range = aggregator.get_date_range()
+        
+        assert "from" in date_range
+        assert "to" in date_range
+
+    def test_get_date_range_last_6_hours(self):
+        """Test getting last 6 hours date range."""
+        aggregator = NewsAggregator()
+        aggregator.configure(time_range="last_6_hours")
+        
+        date_range = aggregator.get_date_range()
+        
+        assert "from" in date_range
+        assert "to" in date_range
+
+    def test_get_date_range_last_12_hours(self):
+        """Test getting last 12 hours date range."""
+        aggregator = NewsAggregator()
+        aggregator.configure(time_range="last_12_hours")
+        
+        date_range = aggregator.get_date_range()
+        
+        assert "from" in date_range
+        assert "to" in date_range
+
+    def test_get_date_range_last_month(self):
+        """Test getting last month date range."""
+        aggregator = NewsAggregator()
+        aggregator.configure(time_range="last_month")
+        
+        date_range = aggregator.get_date_range()
+        
+        # Verify format
+        from_date = datetime.strptime(date_range["from"], "%Y-%m-%d")
+        to_date = datetime.strptime(date_range["to"], "%Y-%m-%d")
+        
+        # Should be roughly 30 days apart
+        diff = to_date - from_date
+        assert diff.days >= 29 and diff.days <= 31
+
+
+class TestNewsAggregatorConfigureMethods:
+    """More tests for NewsAggregator configuration."""
+
+    def test_configure_preserves_unset_values(self):
+        """Test configuring preserves values not being set."""
+        aggregator = NewsAggregator()
+        original_languages = aggregator.languages[:]
+        
+        aggregator.configure(max_results=50)
+        
+        # Languages should be unchanged
+        assert aggregator.languages == original_languages
+        assert aggregator.max_results == 50
+
+    def test_configure_multiple_settings(self):
+        """Test configuring multiple settings at once."""
+        aggregator = NewsAggregator()
+        
+        aggregator.configure(
+            languages=["de"],
+            domains=["spiegel.de"],
+            max_results=25,
+            time_range="last_week"
+        )
+        
+        assert aggregator.languages == ["de"]
+        assert aggregator.domains == ["spiegel.de"]
+        assert aggregator.max_results == 25
+        assert aggregator.time_range == TimeRangeEnum.LAST_WEEK
+
+    def test_configure_with_none_values(self):
+        """Test configuring with None values doesn't change settings."""
+        aggregator = NewsAggregator()
+        original_max = aggregator.max_results
+        
+        aggregator.configure(max_results=None)
+        
+        assert aggregator.max_results == original_max
+
+
+class TestIsContentCompleteEdgeCases:
+    """More edge cases for is_content_complete."""
+
+    def test_content_with_brackets_not_truncation(self):
+        """Test content with brackets that's not truncation."""
+        content = "This is article content [citation needed]. " * 10
+        # Should be complete since no truncation marker at end
+        assert is_content_complete(content) is True
+
+    def test_content_with_numbers_in_brackets_middle(self):
+        """Test content with numbers in brackets in middle."""
+        content = "A" * 150 + " [123 chars] " + "B" * 100
+        # Should be complete since marker is not at end
+        assert is_content_complete(content) is True
+
+    def test_content_with_truncation_marker_with_space(self):
+        """Test truncation marker with extra space."""
+        content = "A" * 200 + " [+500 chars] "
+        assert is_content_complete(content) is False
+
+
+class TestNewsAggregatorUpdateKeywordsEdgeCases:
+    """More edge cases for update_keywords."""
+
+    def test_update_keywords_with_none(self):
+        """Test updating keywords with None."""
+        aggregator = NewsAggregator()
+        aggregator.keywords = ["existing"]
+        aggregator.update_keywords(None)
+        
+        assert aggregator.keywords == []
+
+    def test_update_keywords_with_non_list(self):
+        """Test updating keywords with non-list."""
+        aggregator = NewsAggregator()
+        aggregator.keywords = ["existing"]
+        aggregator.update_keywords("not a list")
+        
+        assert aggregator.keywords == []
+
+    def test_update_keywords_deeply_nested(self):
+        """Test updating keywords with deeply nested list (first level only)."""
+        aggregator = NewsAggregator()
+        # Only single level nesting is handled
+        aggregator.update_keywords([["word1", "word2"]])
+        
+        assert aggregator.keywords == ["word1", "word2"]

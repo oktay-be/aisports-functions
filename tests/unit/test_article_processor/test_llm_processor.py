@@ -233,3 +233,290 @@ class TestCreateBatchRequestForSingletons:
             prompt_template="Test"
         )
         assert requests == []
+
+class TestCreateBatchRequestGenerationConfig:
+    """Tests for create_batch_request generation config."""
+
+    @pytest.fixture
+    def processor(self):
+        """Create processor with mocks."""
+        return LLMProcessor(
+            genai_client=Mock(),
+            storage_client=Mock(),
+            bucket_name="test-bucket",
+            thinking_level="HIGH"
+        )
+
+    def test_thinking_level_included(self, processor):
+        """Request should include thinking config."""
+        groups = [ArticleGroup(group_id=1, article_indices=[0])]
+        articles = [{"article_id": "a1", "title": "Article 1"}]
+
+        requests = processor.create_batch_request(
+            groups=groups,
+            articles=articles,
+            prompt_template="Test prompt"
+        )
+
+        config = requests[0]["request"]["generationConfig"]
+        assert "thinkingConfig" in config
+        assert config["thinkingConfig"]["thinkingLevel"] == "HIGH"
+
+    def test_response_schema_included(self, processor):
+        """Request should include response schema."""
+        groups = [ArticleGroup(group_id=1, article_indices=[0])]
+        articles = [{"article_id": "a1", "title": "Article 1"}]
+
+        requests = processor.create_batch_request(
+            groups=groups,
+            articles=articles,
+            prompt_template="Test prompt"
+        )
+
+        config = requests[0]["request"]["generationConfig"]
+        assert "responseSchema" in config
+
+    def test_max_output_tokens_value(self, processor):
+        """Request should have max output tokens set."""
+        groups = [ArticleGroup(group_id=1, article_indices=[0])]
+        articles = [{"article_id": "a1", "title": "Article 1"}]
+
+        requests = processor.create_batch_request(
+            groups=groups,
+            articles=articles,
+            prompt_template="Test prompt"
+        )
+
+        config = requests[0]["request"]["generationConfig"]
+        assert config["maxOutputTokens"] == 65535
+
+
+class TestSingletonBatchSizes:
+    """Tests for singleton batch size handling."""
+
+    @pytest.fixture
+    def processor(self):
+        """Create processor with mocks."""
+        return LLMProcessor(
+            genai_client=Mock(),
+            storage_client=Mock(),
+            bucket_name="test-bucket"
+        )
+
+    def test_exact_batch_size(self, processor):
+        """Should create exactly batch_size entries per request."""
+        singleton_groups = [
+            ArticleGroup(group_id=i, article_indices=[i])
+            for i in range(10)
+        ]
+        articles = [{"article_id": f"a{i}"} for i in range(10)]
+
+        requests = processor.create_batch_request_for_singletons(
+            singleton_groups=singleton_groups,
+            articles=articles,
+            prompt_template="Test",
+            batch_size=10
+        )
+
+        assert len(requests) == 1
+
+    def test_batch_size_plus_one(self, processor):
+        """Should create 2 batches for batch_size + 1 items."""
+        singleton_groups = [
+            ArticleGroup(group_id=i, article_indices=[i])
+            for i in range(11)
+        ]
+        articles = [{"article_id": f"a{i}"} for i in range(11)]
+
+        requests = processor.create_batch_request_for_singletons(
+            singleton_groups=singleton_groups,
+            articles=articles,
+            prompt_template="Test",
+            batch_size=10
+        )
+
+        assert len(requests) == 2
+
+    def test_small_batch_size(self, processor):
+        """Should handle small batch sizes."""
+        singleton_groups = [
+            ArticleGroup(group_id=i, article_indices=[i])
+            for i in range(5)
+        ]
+        articles = [{"article_id": f"a{i}"} for i in range(5)]
+
+        requests = processor.create_batch_request_for_singletons(
+            singleton_groups=singleton_groups,
+            articles=articles,
+            prompt_template="Test",
+            batch_size=2
+        )
+
+        assert len(requests) == 3  # 2 + 2 + 1
+
+
+class TestBatchRequestContents:
+    """Tests for batch request content structure."""
+
+    @pytest.fixture
+    def processor(self):
+        """Create processor with mocks."""
+        return LLMProcessor(
+            genai_client=Mock(),
+            storage_client=Mock(),
+            bucket_name="test-bucket"
+        )
+
+    def test_request_has_user_role(self, processor):
+        """Request should have user role in contents."""
+        groups = [ArticleGroup(group_id=1, article_indices=[0])]
+        articles = [{"article_id": "a1"}]
+
+        requests = processor.create_batch_request(
+            groups=groups,
+            articles=articles,
+            prompt_template="Test"
+        )
+
+        contents = requests[0]["request"]["contents"]
+        assert len(contents) == 1
+        assert contents[0]["role"] == "user"
+
+    def test_request_has_two_parts(self, processor):
+        """Request should have prompt and data parts."""
+        groups = [ArticleGroup(group_id=1, article_indices=[0])]
+        articles = [{"article_id": "a1"}]
+
+        requests = processor.create_batch_request(
+            groups=groups,
+            articles=articles,
+            prompt_template="Test"
+        )
+
+        parts = requests[0]["request"]["contents"][0]["parts"]
+        assert len(parts) == 2
+        assert "text" in parts[0]
+        assert "text" in parts[1]
+
+    def test_data_part_contains_json(self, processor):
+        """Data part should contain valid JSON."""
+        groups = [ArticleGroup(group_id=1, article_indices=[0])]
+        articles = [{"article_id": "test123", "title": "Test"}]
+
+        requests = processor.create_batch_request(
+            groups=groups,
+            articles=articles,
+            prompt_template="Test"
+        )
+
+        data_text = requests[0]["request"]["contents"][0]["parts"][1]["text"]
+        # Should contain JSON-formatted data
+        assert "test123" in data_text
+        assert "```json" in data_text
+
+
+class TestSingletonBatchContents:
+    """Tests for singleton batch request contents."""
+
+    @pytest.fixture
+    def processor(self):
+        """Create processor with mocks."""
+        return LLMProcessor(
+            genai_client=Mock(),
+            storage_client=Mock(),
+            bucket_name="test-bucket"
+        )
+
+    def test_batch_processing_flag(self, processor):
+        """Singleton batch should indicate batch processing."""
+        singleton_groups = [ArticleGroup(group_id=0, article_indices=[0])]
+        articles = [{"article_id": "a1"}]
+
+        requests = processor.create_batch_request_for_singletons(
+            singleton_groups=singleton_groups,
+            articles=articles,
+            prompt_template="Test",
+            batch_size=10
+        )
+
+        data_text = requests[0]["request"]["contents"][0]["parts"][1]["text"]
+        assert "batch_processing" in data_text or "BATCH OF SINGLETON" in data_text
+
+    def test_multiple_groups_in_batch(self, processor):
+        """Batch should contain multiple groups."""
+        singleton_groups = [
+            ArticleGroup(group_id=0, article_indices=[0]),
+            ArticleGroup(group_id=1, article_indices=[1]),
+        ]
+        articles = [
+            {"article_id": "a0"},
+            {"article_id": "a1"},
+        ]
+
+        requests = processor.create_batch_request_for_singletons(
+            singleton_groups=singleton_groups,
+            articles=articles,
+            prompt_template="Test",
+            batch_size=10
+        )
+
+        data_text = requests[0]["request"]["contents"][0]["parts"][1]["text"]
+        assert "a0" in data_text
+        assert "a1" in data_text
+
+
+class TestLLMProcessorThinkingLevels:
+    """Tests for different thinking levels."""
+
+    def test_low_thinking_level(self):
+        """Should use LOW thinking level."""
+        processor = LLMProcessor(
+            genai_client=Mock(),
+            storage_client=Mock(),
+            bucket_name="test-bucket",
+            thinking_level="LOW"
+        )
+        assert processor.thinking_level == "LOW"
+
+    def test_medium_thinking_level(self):
+        """Should use MEDIUM thinking level."""
+        processor = LLMProcessor(
+            genai_client=Mock(),
+            storage_client=Mock(),
+            bucket_name="test-bucket",
+            thinking_level="MEDIUM"
+        )
+        assert processor.thinking_level == "MEDIUM"
+
+    def test_high_thinking_level(self):
+        """Should use HIGH thinking level."""
+        processor = LLMProcessor(
+            genai_client=Mock(),
+            storage_client=Mock(),
+            bucket_name="test-bucket",
+            thinking_level="HIGH"
+        )
+        assert processor.thinking_level == "HIGH"
+
+
+class TestLLMProcessorModelConfig:
+    """Tests for model configuration."""
+
+    def test_custom_model(self):
+        """Should use custom model."""
+        processor = LLMProcessor(
+            genai_client=Mock(),
+            storage_client=Mock(),
+            bucket_name="test-bucket",
+            model="gemini-2.0-flash"
+        )
+        assert processor.model == "gemini-2.0-flash"
+
+    def test_default_model(self):
+        """Should use default model when not specified."""
+        processor = LLMProcessor(
+            genai_client=Mock(),
+            storage_client=Mock(),
+            bucket_name="test-bucket"
+        )
+        assert "gemini" in processor.model
