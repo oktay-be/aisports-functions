@@ -10,6 +10,12 @@ from datetime import datetime
 import sys
 from unittest.mock import MagicMock
 
+# Mock pydantic before importing (needed by models.py)
+mock_pydantic = MagicMock()
+mock_pydantic.BaseModel = MagicMock
+mock_pydantic.Field = MagicMock(return_value=None)
+sys.modules['pydantic'] = mock_pydantic
+
 # Mock Google Cloud modules before importing
 mock_storage = MagicMock()
 sys.modules['google.cloud.storage'] = mock_storage
