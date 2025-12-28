@@ -36,7 +36,6 @@ name: Deploy Scraper Function
 on:
   push:
     branches:
-      - main
       - dev
       - 'feature/**'
     paths:
@@ -115,6 +114,12 @@ jobs:
         labels: |
           version=${{ env.VERSION_LABEL }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+    - name: Apply Version Tag to Revision
+      run: |
+        gcloud run services update-traffic scrape-and-store \
+          --set-tags v${{ env.VERSION_LABEL }}=LATEST \
+          --region ${{ vars.REGION }}
 
     - name: Deployment Summary
       run: |

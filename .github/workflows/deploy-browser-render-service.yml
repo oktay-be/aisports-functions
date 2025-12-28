@@ -28,7 +28,6 @@ name: Deploy Browser Render Service
 on:
   push:
     branches:
-      - main
       - dev
       - 'feature/**'
     paths:
@@ -96,6 +95,12 @@ jobs:
           labels: |
             version=${{ env.VERSION_LABEL }}
           flags: '--allow-unauthenticated --memory=2Gi --cpu=2 --timeout=300 --concurrency=5 --min-instances=0 --max-instances=3 --service-account=${{ vars.GCP_SERVICE_ACCOUNT }}'
+
+      - name: Apply Version Tag to Revision
+        run: |
+          gcloud run services update-traffic browser-render-service \
+            --set-tags v${{ env.VERSION_LABEL }}=LATEST \
+            --region ${{ vars.REGION }}
 
       - name: Deployment Summary
         run: |

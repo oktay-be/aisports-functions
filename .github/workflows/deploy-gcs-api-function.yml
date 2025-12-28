@@ -35,7 +35,6 @@ name: Deploy GCS API Function
 on:
   push:
     branches:
-      - main
       - dev
       - 'feature/**'
     paths:
@@ -125,6 +124,12 @@ jobs:
           --region=${{ vars.REGION }} \
           --member="allUsers" \
           --role="roles/run.invoker"
+
+    - name: Apply Version Tag to Revision
+      run: |
+        gcloud run services update-traffic gcs-api \
+          --set-tags v${{ env.VERSION_LABEL }}=LATEST \
+          --region ${{ vars.REGION }}
 
     - name: Deployment Summary
       run: |
