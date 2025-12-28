@@ -72,6 +72,10 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # Sanitize version for GCP labels (no dots allowed)
+    - name: Set version label
+      run: echo "VERSION_LABEL=$(echo '${{ env.APP_VERSION }}' | tr '.' '-' | tr -cd '[:alnum:]-_')" >> $GITHUB_ENV
+
     # Authenticate using Workload Identity Federation (keyless authentication)
     - name: Authenticate to Google Cloud (Workload Identity Federation)
       uses: google-github-actions/auth@v2
@@ -108,6 +112,8 @@ jobs:
           BROWSER_SERVICE_URL=${{ vars.BROWSER_SERVICE_URL }}
           BROWSER_SERVICE_MAX_SCROLLS=20
           APP_VERSION=${{ env.APP_VERSION }}
+        labels: |
+          version=${{ env.VERSION_LABEL }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
     - name: Deployment Summary
