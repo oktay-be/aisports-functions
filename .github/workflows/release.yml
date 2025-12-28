@@ -1,0 +1,102 @@
+# =============================================================================
+# Release Workflow - Auto-tag on PR merge to main
+# =============================================================================
+# Triggers when a PR is merged to main branch.
+# Automatically:
+#   1. Calculates version using GitVersion
+#   2. Creates git tag (e.g., v1.2.0)
+#   3. Creates GitHub Release with auto-generated notes
+#   4. Creates sync PR from main → dev
+#
+# VERSION CONTROL VIA PR LABELS:
+#   - Add "major" label → bumps major version (1.x.x → 2.0.0)
+#   - Add "minor" label → bumps minor version (1.2.x → 1.3.0)
+#   - No label → auto-detect from commit messages (+semver: tags)
+# =============================================================================
+
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install GitVersion
+        uses: gittools/actions/gitversion/setup@v3.0.0
+        with:
+          versionSpec: '6.x'
+
+      # Check PR labels to determine version bump type
+      - name: Check for version labels
+        id: labels
+        run: |
+          if [[ "${{ contains(github.event.pull_request.labels.*.name, 'major') }}" == "true" ]]; then
+            echo "increment=major" >> $GITHUB_OUTPUT
+            echo "Version bump: MAJOR (from PR label)"
+          elif [[ "${{ contains(github.event.pull_request.labels.*.name, 'minor') }}" == "true" ]]; then
+            echo "increment=minor" >> $GITHUB_OUTPUT
+            echo "Version bump: MINOR (from PR label)"
+          else
+            echo "increment=" >> $GITHUB_OUTPUT
+            echo "Version bump: AUTO (from commit messages)"
+          fi
+
+      - name: Determine Version
+        id: gitversion
+        uses: gittools/actions/gitversion/execute@v3.0.0
+        with:
+          useConfigFile: true
+          configFilePath: GitVersion.yml
+
+      - name: Create Git Tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.gitversion.outputs.semVer }}" -m "Release v${{ steps.gitversion.outputs.semVer }}"
+          git push origin "v${{ steps.gitversion.outputs.semVer }}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.gitversion.outputs.semVer }}
+          name: Release v${{ steps.gitversion.outputs.semVer }}
+          generate_release_notes: true
+
+      - name: Create Sync PR (main → dev)
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: sync/main-to-dev
+          base: dev
+          title: "chore: sync main v${{ steps.gitversion.outputs.semVer }} to dev"
+          body: |
+            Automated PR to sync main branch changes back to dev.
+
+            **Release:** v${{ steps.gitversion.outputs.semVer }}
+
+            Please merge this to update dev branch with the new version baseline.
+          labels: automated,sync
+
+      - name: Summary
+        run: |
+          echo "## Release Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Version | v${{ steps.gitversion.outputs.semVer }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tag | v${{ steps.gitversion.outputs.semVer }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| PR | #${{ github.event.pull_request.number }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Sync PR | Created (main → dev) |" >> $GITHUB_STEP_SUMMARY

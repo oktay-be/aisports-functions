@@ -50,7 +50,12 @@ permissions:
   contents: read   # Required to checkout repository
 
 jobs:
+  # Calculate version using GitVersion
+  version:
+    uses: ./.github/workflows/gitversion.yml
+
   deploy:
+    needs: version
     runs-on: ubuntu-latest
 
     steps:
@@ -92,9 +97,20 @@ jobs:
         environment_variables: |
           GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
           GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
-          REGION_DIFF_THRESHOLD=${{ env.REGION_DIFF_THRESHOLD }}
+          DIFF_THRESHOLD=${{ env.DIFF_THRESHOLD }}
           REGION1=${{ env.REGION1 }}
           REGION2=${{ env.REGION2 }}
           HISTORICAL_DIFF_DEPTH=${{ env.HISTORICAL_DIFF_DEPTH }}
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
+          APP_VERSION=${{ needs.version.outputs.semVer }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+    - name: Deployment Summary
+      run: |
+        echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Function | region-diff |" >> $GITHUB_STEP_SUMMARY
+        echo "| Version | ${{ needs.version.outputs.semVer }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Region | ${{ vars.REGION }} |" >> $GITHUB_STEP_SUMMARY

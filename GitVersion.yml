@@ -1,0 +1,105 @@
+# =============================================================================
+# GitVersion Configuration for AISports Functions
+# =============================================================================
+# Strategy: GitFlow with Beta Channel
+#
+# Branch versioning:
+#   - main:     X.Y.Z (stable releases, tagged)
+#   - dev:      X.Y.Z-beta.N (pre-release, N increases per commit)
+#   - feature:  X.Y.Z-<branchName>.N (feature pre-release)
+#   - hotfix:   X.Y.Z-hotfix-<name>.N (hotfix pre-release)
+#
+# Release workflow:
+#   1. Create PR: dev → main (in GitHub)
+#   2. Add label: "minor" or "major" (optional)
+#   3. Merge PR
+#   4. release.yml auto-creates tag + GitHub Release
+# =============================================================================
+
+workflow: GitFlow/v1
+mode: ContinuousDelivery
+
+# Version format settings
+assembly-versioning-scheme: MajorMinorPatch
+tag-prefix: '[vV]?'
+
+# Commit message triggers for version bumps
+major-version-bump-message: '\+semver:\s?(breaking|major)'
+minor-version-bump-message: '\+semver:\s?(feature|minor)'
+patch-version-bump-message: '\+semver:\s?(fix|patch)'
+no-bump-message: '\+semver:\s?(none|skip)'
+
+# Branch configurations
+branches:
+  main:
+    mode: ContinuousDeployment
+    label: ''
+    increment: Minor
+    prevent-increment:
+      of-merged-branch: true
+    track-merge-target: false
+    regex: ^master$|^main$
+    source-branches:
+      - dev
+    is-main-branch: true
+
+  dev:
+    mode: ContinuousDelivery
+    label: beta
+    increment: Minor
+    prevent-increment:
+      when-current-commit-tagged: false
+    track-merge-target: true
+    track-merge-message: true
+    regex: ^dev(elop)?(ment)?$
+    source-branches:
+      - main
+    tracks-release-branches: false
+    is-main-branch: false
+    pre-release-weight: 1000
+
+  feature:
+    mode: ContinuousDelivery
+    label: '{BranchName}'
+    increment: Inherit
+    prevent-increment:
+      when-current-commit-tagged: false
+    regex: ^features?[/-](?<BranchName>.+)
+    source-branches:
+      - dev
+      - main
+    pre-release-weight: 30000
+
+  hotfix:
+    mode: ContinuousDelivery
+    label: hotfix-{BranchName}
+    increment: Patch
+    regex: ^hotfix(es)?[/-](?<BranchName>.+)
+    source-branches:
+      - main
+    is-release-branch: true
+    pre-release-weight: 30000
+
+  pull-request:
+    mode: ContinuousDelivery
+    label: pr{Number}
+    increment: Inherit
+    regex: ^(pull-requests|pull|pr)[/-](?<Number>\d*)
+    source-branches:
+      - dev
+      - main
+      - feature
+    pre-release-weight: 30000
+
+  unknown:
+    mode: ContinuousDelivery
+    label: '{BranchName}'
+    increment: Inherit
+    regex: (?<BranchName>.+)
+    source-branches:
+      - dev
+      - main
+    pre-release-weight: 30000
+
+ignore:
+  sha: []

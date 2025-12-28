@@ -48,7 +48,12 @@ permissions:
   contents: read   # Required to checkout repository
 
 jobs:
+  # Calculate version using GitVersion
+  version:
+    uses: ./.github/workflows/gitversion.yml
+
   deploy:
+    needs: version
     runs-on: ubuntu-latest
 
     steps:
@@ -96,4 +101,15 @@ jobs:
           CROSS_RUN_DEDUP_THRESHOLD_EU=0.9
           GROUPING_THRESHOLD=0.8
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
+          APP_VERSION=${{ needs.version.outputs.semVer }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+    - name: Deployment Summary
+      run: |
+        echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Function | article-processor |" >> $GITHUB_STEP_SUMMARY
+        echo "| Version | ${{ needs.version.outputs.semVer }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Region | ${{ vars.REGION }} |" >> $GITHUB_STEP_SUMMARY
