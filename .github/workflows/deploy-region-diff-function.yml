@@ -53,16 +53,21 @@ env:
 permissions:
   id-token: write  # Required for Workload Identity Federation
   contents: read   # Required to checkout repository
+  pull-requests: write  # Required for test workflow PR comments
 
 jobs:
+  # Run tests before deployment
+  test:
+    uses: ./.github/workflows/test.yml
+
   # Calculate version using GitVersion (skipped if version input provided)
   version:
     if: ${{ inputs.version == '' }}
     uses: ./.github/workflows/gitversion.yml
 
   deploy:
-    needs: version
-    if: ${{ always() && !cancelled() }}
+    needs: [test, version]
+    if: ${{ always() && !cancelled() && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       APP_VERSION: ${{ inputs.version || needs.version.outputs.semVer }}
