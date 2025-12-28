@@ -2,14 +2,14 @@
 # Deploy All Functions
 # =============================================================================
 # Orchestrator workflow to deploy all functions at once.
-# Triggers individual deploy workflows in parallel.
+# Calculates version ONCE, then passes to all workflows (no redundant GitVersion calls).
 #
 # USAGE:
 #   Go to Actions tab > "Deploy All Functions" > "Run workflow"
-#   - Select branch (dev or main)
+#   - Select branch from "Use workflow from" dropdown
 #   - Check "Deploy all services" OR select individual functions
 #
-# NOTE: Each function's workflow must have `workflow_call:` in its `on:` section
+# NOTE: Version is calculated once and passed to all called workflows
 # =============================================================================
 
 name: Deploy All Functions
@@ -63,70 +63,105 @@ on:
         default: false
 
 jobs:
+  # Calculate version ONCE for all deployments
+  version:
+    uses: ./.github/workflows/gitversion.yml
+
   # Article Enricher
   deploy-article-enricher:
+    needs: version
     if: ${{ inputs.deploy_all || inputs.article_enricher }}
     uses: ./.github/workflows/deploy-article-enricher-function.yml
+    with:
+      version: ${{ needs.version.outputs.semVer }}
     secrets: inherit
 
   # Article Processor
   deploy-article-processor:
+    needs: version
     if: ${{ inputs.deploy_all || inputs.article_processor }}
     uses: ./.github/workflows/deploy-article-processor-function.yml
+    with:
+      version: ${{ needs.version.outputs.semVer }}
     secrets: inherit
 
   # JSONL Transformer
   deploy-jsonl-transformer:
+    needs: version
     if: ${{ inputs.deploy_all || inputs.jsonl_transformer }}
     uses: ./.github/workflows/deploy-jsonl-transformer-function.yml
+    with:
+      version: ${{ needs.version.outputs.semVer }}
     secrets: inherit
 
   # Merge Decider
   deploy-merge-decider:
+    needs: version
     if: ${{ inputs.deploy_all || inputs.merge_decider }}
     uses: ./.github/workflows/deploy-merge-decider-function.yml
+    with:
+      version: ${{ needs.version.outputs.semVer }}
     secrets: inherit
 
   # Region Diff
   deploy-region-diff:
+    needs: version
     if: ${{ inputs.deploy_all || inputs.region_diff }}
     uses: ./.github/workflows/deploy-region-diff-function.yml
+    with:
+      version: ${{ needs.version.outputs.semVer }}
     secrets: inherit
 
   # Scraper
   deploy-scraper:
+    needs: version
     if: ${{ inputs.deploy_all || inputs.scraper }}
     uses: ./.github/workflows/deploy-scraper-function.yml
+    with:
+      version: ${{ needs.version.outputs.semVer }}
     secrets: inherit
 
   # News API Fetcher
   deploy-news-api-fetcher:
+    needs: version
     if: ${{ inputs.deploy_all || inputs.news_api_fetcher }}
     uses: ./.github/workflows/deploy-news-api-fetcher-function.yml
+    with:
+      version: ${{ needs.version.outputs.semVer }}
     secrets: inherit
 
   # Source Discoverer
   deploy-source-discoverer:
+    needs: version
     if: ${{ inputs.deploy_all || inputs.source_discoverer }}
     uses: ./.github/workflows/deploy-source-discoverer-function.yml
+    with:
+      version: ${{ needs.version.outputs.semVer }}
     secrets: inherit
 
   # GCS API
   deploy-gcs-api:
+    needs: version
     if: ${{ inputs.deploy_all || inputs.gcs_api }}
     uses: ./.github/workflows/deploy-gcs-api-function.yml
+    with:
+      version: ${{ needs.version.outputs.semVer }}
     secrets: inherit
 
   # Browser Render Service
   deploy-browser-render:
+    needs: version
     if: ${{ inputs.deploy_all || inputs.browser_render }}
     uses: ./.github/workflows/deploy-browser-render-service.yml
+    with:
+      version: ${{ needs.version.outputs.semVer }}
     secrets: inherit
 
   # Summary job - runs after all deployments
   summary:
     runs-on: ubuntu-latest
     needs:
+      - version
       - deploy-article-enricher
       - deploy-article-processor
       - deploy-jsonl-transformer
@@ -142,6 +177,10 @@ jobs:
       - name: Deployment Summary
         run: |
           echo "## Deploy All Summary" >> $GITHUB_STEP_SUMMARY
+          echo "**Version:** ${{ needs.version.outputs.semVer }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Service | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| article-enricher | ${{ needs.deploy-article-enricher.result }} |" >> $GITHUB_STEP_SUMMARY
@@ -154,6 +193,3 @@ jobs:
           echo "| source-discoverer | ${{ needs.deploy-source-discoverer.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| gcs-api | ${{ needs.deploy-gcs-api.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| browser-render-service | ${{ needs.deploy-browser-render.result }} |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Branch:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Triggered by:** ${{ github.actor }}" >> $GITHUB_STEP_SUMMARY

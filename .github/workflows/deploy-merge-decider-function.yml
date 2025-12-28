@@ -39,7 +39,12 @@ on:
       - 'merge_decider_function/**'
       - '.github/workflows/deploy-merge-decider-function.yml'
   workflow_dispatch:
-  workflow_call:  # Enables calling from deploy-all.yml
+  workflow_call:
+    inputs:
+      version:
+        description: 'Version to deploy (skips GitVersion calculation if provided)'
+        required: false
+        type: string
 
 env:
   TRIGGER_LOCATION: 'us'  # Must match GCS bucket location
@@ -49,13 +54,17 @@ permissions:
   contents: read   # Required to checkout repository
 
 jobs:
-  # Calculate version using GitVersion
+  # Calculate version using GitVersion (skipped if version input provided)
   version:
+    if: ${{ inputs.version == '' }}
     uses: ./.github/workflows/gitversion.yml
 
   deploy:
     needs: version
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
+    env:
+      APP_VERSION: ${{ inputs.version || needs.version.outputs.semVer }}
 
     steps:
     - name: Checkout repository
@@ -99,7 +108,7 @@ jobs:
           VERTEX_AI_LOCATION=${{ vars.VERTEX_AI_LOCATION }}
           VERTEX_AI_MODEL=${{ vars.VERTEX_AI_MODEL }}
           ENVIRONMENT=${{ vars.FUNCTION_ENVIRONMENT }}
-          APP_VERSION=${{ needs.version.outputs.semVer }}
+          APP_VERSION=${{ env.APP_VERSION }}
         service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
 
     - name: Deployment Summary
@@ -108,6 +117,6 @@ jobs:
         echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
         echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
         echo "| Function | merge-decider |" >> $GITHUB_STEP_SUMMARY
-        echo "| Version | ${{ needs.version.outputs.semVer }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Version | ${{ env.APP_VERSION }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Branch | ${{ github.ref_name }} |" >> $GITHUB_STEP_SUMMARY
         echo "| Region | ${{ vars.REGION }} |" >> $GITHUB_STEP_SUMMARY
