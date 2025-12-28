@@ -164,6 +164,7 @@ gs://aisports-scraping/
 |-----------|-------|-------------|
 | Cross-run dedup threshold (TR) | 0.85 | Drop Turkish articles similar to previous run |
 | Cross-run dedup threshold (EU) | 0.9 | Drop European articles similar to previous run |
+| Cross-run dedup depth | 3 days | Number of days to look back for deduplication |
 | Within-run grouping threshold | 0.8 | Group similar articles for merge decision |
 | Region diff threshold | 0.75 | Similarity threshold for EU vs TR coverage |
 | Embedding model | text-embedding-004 | 768-dim vectors |
@@ -179,7 +180,7 @@ gs://aisports-scraping/
 - No embedding comparison needed
 
 ### Phase 2: Cross-run Deduplication (Embedding-based)
-- **Scope**: **Same day only** - compares against `ingestion/{date}/*` embeddings
+- **Scope**: **Last N days** - configurable via `CROSS_RUN_DEDUP_DEPTH` env var (default: 3 days)
 - **Method**: Cosine similarity against previous run embeddings
 - **Thresholds**:
   - TR region: 0.85 (lower to catch more transfer news)
@@ -237,5 +238,5 @@ gs://aisports-scraping/
 ## Known Limitations
 
 - **Concurrency:** The `PUT /user/preferences` endpoint uses a read-modify-write pattern without locking. Concurrent updates from multiple clients may result in lost data.
-- **Cross-run dedup**: Only compares against same-day runs. Articles from yesterday won't be deduplicated against today's.
+- **Cross-run dedup**: Configurable lookback depth (default 3 days). Controlled by `CROSS_RUN_DEDUP_DEPTH` env var.
 - **Region diff**: Only compares last 3 days of TR history. Older EU coverage gaps won't be detected.

@@ -8,7 +8,8 @@ Flow:
 1. Triggered by GCS file creation (complete_articles.json, scraped_*.json)
 2. Generate embeddings (title + 500 chars body)
 3. Save embeddings to embeddings/ folder
-4. Cross-run dedup against previous runs today (threshold 0.7)
+4. Cross-run dedup against previous runs (last N days, configurable via CROSS_RUN_DEDUP_DEPTH)
+   - Region-specific thresholds: TR=0.85, EU=0.9
 5. Group remaining articles (threshold 0.8)
 6. Output singleton_*.json and grouped_*.json
 """
@@ -67,6 +68,10 @@ GROUPING_THRESHOLD = float(os.getenv('GROUPING_THRESHOLD', '0.8'))
 # EU: 0.9 - European content more unique, stricter dedup
 CROSS_RUN_DEDUP_THRESHOLD_TR = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD_TR', '0.85'))
 CROSS_RUN_DEDUP_THRESHOLD_EU = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD_EU', '0.9'))
+
+# Cross-run dedup lookback depth (days)
+# 1 = same day only, 3 = last 3 days (today + 2 previous)
+CROSS_RUN_DEDUP_DEPTH = int(os.getenv('CROSS_RUN_DEDUP_DEPTH', '1'))
 
 # Language normalization map
 LANGUAGE_MAP = {
@@ -169,11 +174,13 @@ class ArticleProcessor:
                     'eu': CROSS_RUN_DEDUP_THRESHOLD_EU,
                 }
                 logger.info(f"Region thresholds configured: {region_thresholds}")
+                logger.info(f"Cross-run dedup depth: {CROSS_RUN_DEDUP_DEPTH} days")
 
                 self.deduplicator = CrossRunDeduplicator(
                     storage_client=self.storage_client,
                     bucket_name=GCS_BUCKET_NAME,
-                    region_thresholds=region_thresholds
+                    region_thresholds=region_thresholds,
+                    dedup_depth=CROSS_RUN_DEDUP_DEPTH
                 )
 
             except Exception as e:

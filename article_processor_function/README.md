@@ -10,7 +10,7 @@ Raw Articles → Pre-filter → Embed → Cross-run Dedup → Group → Output F
 
 1. **Pre-filter**: Remove exact URL/title duplicates (code-based)
 2. **Embed**: Generate vectors with `text-embedding-004`
-3. **Cross-run Dedup**: Compare against **same-day** embeddings, drop duplicates
+3. **Cross-run Dedup**: Compare against **last N days** of embeddings, drop duplicates
 4. **Group**: Cosine similarity ≥ 0.8 → Union-Find grouping
 5. **Output**: Separate singletons and groups for downstream processing
 
@@ -28,6 +28,7 @@ Raw Articles → Pre-filter → Embed → Cross-run Dedup → Group → Output F
 |---------|---------|-------------|
 | `CROSS_RUN_DEDUP_THRESHOLD_TR` | 0.85 | Cross-run dedup threshold for TR region |
 | `CROSS_RUN_DEDUP_THRESHOLD_EU` | 0.9 | Cross-run dedup threshold for EU region |
+| `CROSS_RUN_DEDUP_DEPTH` | 3 | Number of days to look back for cross-run dedup |
 | `GROUPING_THRESHOLD` | 0.8 | Within-run article grouping threshold |
 | `EMBEDDING_MODEL` | text-embedding-004 | Vertex AI embedding model |
 
@@ -42,15 +43,18 @@ Articles without a region field use the EU threshold (0.9) as fallback.
 
 ### Cross-run Dedup Scope
 
-**SAME DAY ONLY**: Cross-run deduplication only compares against embeddings from other runs within the same date folder:
+**LAST N DAYS**: Cross-run deduplication compares against embeddings from the last N days (configurable via `CROSS_RUN_DEDUP_DEPTH`):
 
 ```
-ingestion/2025-12-22/08-00-00/embeddings/*.json  ← compared against
-ingestion/2025-12-22/09-00-00/embeddings/*.json  ← current run
-ingestion/2025-12-22/10-00-00/embeddings/*.json  ← compared against
+# With CROSS_RUN_DEDUP_DEPTH=3 (default)
+# Current run: 2025-12-24/08-00-00
+
+ingestion/2025-12-22/*/embeddings/*.json  ← compared against (2 days ago)
+ingestion/2025-12-23/*/embeddings/*.json  ← compared against (yesterday)
+ingestion/2025-12-24/*/embeddings/*.json  ← compared against (today, except current run)
 ```
 
-Articles from yesterday are NOT deduplicated against today's runs.
+This ensures articles aren't republished across consecutive days.
 
 ## Output Files
 
@@ -130,7 +134,7 @@ aisports-scraping/
 ### Cross-run Dedup (embedding comparison)
 - TR article with similarity ≥ 0.85 to previous run article
 - EU article with similarity ≥ 0.9 to previous run article
-- Previous runs = same date only (not yesterday)
+- Compares against last N days (default: 3 days, configurable via `CROSS_RUN_DEDUP_DEPTH`)
 
 ## Related Functions
 

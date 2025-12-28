@@ -1,16 +1,18 @@
 """
 Cross-Run Deduplication Service
 
-Compares articles against embeddings from previous runs within the same day.
+Compares articles against embeddings from previous runs within the last N days.
 Drops articles that are too similar to previously processed articles.
 
-Supports region-specific thresholds (e.g., EU: 0.9, TR: 0.7) to account for
+Supports region-specific thresholds (e.g., EU: 0.9, TR: 0.85) to account for
 different content overlap characteristics across regions.
+
+Configurable via CROSS_RUN_DEDUP_DEPTH environment variable (default: 1 = same day only).
 """
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any, Tuple, Set, Optional
 import numpy as np
 from google.cloud import storage
@@ -28,21 +30,24 @@ DEFAULT_REGION_THRESHOLDS = {
 
 class CrossRunDeduplicator:
     """
-    Deduplicates articles against previous runs within the same day.
+    Deduplicates articles against previous runs within the last N days.
 
     Loads embeddings from all previous run folders that have completed
     (identified by presence of embeddings/*.json files) and compares
     new articles against them.
-    
+
     Supports region-specific thresholds to handle varying content overlap
     characteristics across different regions.
+
+    Configurable lookback depth via dedup_depth parameter (default: 1 = same day only).
     """
 
     def __init__(
         self,
         storage_client: storage.Client,
         bucket_name: str,
-        region_thresholds: Optional[Dict[str, float]] = None
+        region_thresholds: Optional[Dict[str, float]] = None,
+        dedup_depth: int = 1
     ):
         """
         Initialize the cross-run deduplicator.
@@ -52,15 +57,17 @@ class CrossRunDeduplicator:
             bucket_name: GCS bucket name
             region_thresholds: Optional dict mapping region codes to thresholds
                               e.g., {'tr': 0.85, 'eu': 0.9}
+            dedup_depth: Number of days to look back for deduplication (default: 1 = same day only)
         """
         self.storage_client = storage_client
         self.bucket_name = bucket_name
         self.region_thresholds = region_thresholds or DEFAULT_REGION_THRESHOLDS.copy()
+        self.dedup_depth = max(1, dedup_depth)  # Minimum 1 day
         # Fallback for unknown regions uses EU threshold (stricter)
         self.fallback_threshold = self.region_thresholds.get('eu', 0.9)
         logger.info(
             f"CrossRunDeduplicator initialized: region_thresholds={self.region_thresholds}, "
-            f"fallback_threshold={self.fallback_threshold}"
+            f"fallback_threshold={self.fallback_threshold}, dedup_depth={self.dedup_depth} days"
         )
 
     def get_threshold_for_region(self, region: Optional[str]) -> float:
@@ -83,10 +90,14 @@ class CrossRunDeduplicator:
         current_run_id: str
     ) -> List[str]:
         """
-        List all embedding files from previous runs on the same day.
+        List all embedding files from previous runs within the last N days.
 
         Only considers runs with embeddings/*.json files (completed runs).
-        Skips the current run.
+        Skips the current run (only when checking the current date).
+
+        Uses self.dedup_depth to determine how many days to look back:
+        - dedup_depth=1: Same day only (default)
+        - dedup_depth=3: Last 3 days (today + 2 previous days)
 
         Args:
             date_str: Date string (YYYY-MM-DD)
@@ -96,27 +107,40 @@ class CrossRunDeduplicator:
             List of GCS blob paths to embedding files
         """
         bucket = self.storage_client.bucket(self.bucket_name)
-        prefix = f"ingestion/{date_str}/"
-
         embedding_files = []
 
-        # List all blobs under date prefix
-        blobs = bucket.list_blobs(prefix=prefix)
+        # Parse the current date
+        base_date = datetime.strptime(date_str, "%Y-%m-%d")
 
-        for blob in blobs:
-            # Match pattern: ingestion/{date}/{HH-MM-SS}/embeddings/*.json
-            path = blob.name
-            if "/embeddings/" in path and path.endswith("_embeddings.json"):
-                # Extract run_id from path
-                parts = path.split("/")
-                if len(parts) >= 4:
-                    run_id = parts[2]  # HH-MM-SS (after ingestion/date/)
-                    # Skip current run
-                    if run_id != current_run_id:
+        # Iterate over the last N days (including today)
+        for day_offset in range(self.dedup_depth):
+            check_date = base_date - timedelta(days=day_offset)
+            check_date_str = check_date.strftime("%Y-%m-%d")
+            prefix = f"ingestion/{check_date_str}/"
+
+            logger.debug(f"Checking embeddings for date: {check_date_str}")
+
+            # List all blobs under date prefix
+            blobs = bucket.list_blobs(prefix=prefix)
+
+            for blob in blobs:
+                # Match pattern: ingestion/{date}/{HH-MM-SS}/embeddings/*.json
+                path = blob.name
+                if "/embeddings/" in path and path.endswith("_embeddings.json"):
+                    # Extract run_id from path
+                    parts = path.split("/")
+                    if len(parts) >= 4:
+                        run_id = parts[2]  # HH-MM-SS (after ingestion/date/)
+                        # Skip current run only when checking current date
+                        if check_date_str == date_str and run_id == current_run_id:
+                            continue
                         embedding_files.append(path)
                         logger.debug(f"Found previous embedding file: {path}")
 
-        logger.info(f"Found {len(embedding_files)} embedding files from previous runs")
+        logger.info(
+            f"Found {len(embedding_files)} embedding files from previous runs "
+            f"(last {self.dedup_depth} day(s))"
+        )
         return embedding_files
 
     def load_embeddings_from_gcs(
