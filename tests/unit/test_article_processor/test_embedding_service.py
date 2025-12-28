@@ -16,10 +16,15 @@ mock_pydantic.Field = MagicMock(return_value=None)
 sys.modules['pydantic'] = mock_pydantic
 
 # Mock Google Cloud modules before importing
+mock_storage = MagicMock()
+sys.modules['google.cloud.storage'] = mock_storage
 mock_genai = MagicMock()
 sys.modules['google'] = MagicMock()
 sys.modules['google.genai'] = mock_genai
 sys.modules['google.genai.types'] = MagicMock()
+mock_google_cloud = MagicMock()
+mock_google_cloud.storage = mock_storage
+sys.modules['google.cloud'] = mock_google_cloud
 
 from article_processor_function.embedding_service import EmbeddingService
 
