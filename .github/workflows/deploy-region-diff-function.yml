@@ -92,7 +92,7 @@ jobs:
         environment_variables: |
           GOOGLE_CLOUD_PROJECT=${{ vars.GOOGLE_CLOUD_PROJECT }}
           GCS_BUCKET_NAME=${{ vars.GCS_BUCKET_NAME }}
-          DIFF_THRESHOLD=${{ env.DIFF_THRESHOLD }}
+          REGION_DIFF_THRESHOLD=${{ env.REGION_DIFF_THRESHOLD }}
           REGION1=${{ env.REGION1 }}
           REGION2=${{ env.REGION2 }}
           HISTORICAL_DIFF_DEPTH=${{ env.HISTORICAL_DIFF_DEPTH }}

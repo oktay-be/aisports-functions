@@ -17,13 +17,12 @@ from google.cloud import storage
 
 logger = logging.getLogger(__name__)
 
-# Default cross-run dedup threshold - drop if similarity exceeds this
-CROSS_RUN_DEDUP_THRESHOLD = 0.85
-
 # Region-specific defaults (can be overridden via constructor)
+# TR: 0.85 - Turkish content needs higher threshold to avoid false positives on transfer news
+# EU: 0.9 - European content is more unique, requires stricter dedup
 DEFAULT_REGION_THRESHOLDS = {
-    'tr': 0.85,  # Turkish content - raised from 0.7 to reduce false positives on transfer news
-    'eu': 0.9,   # European content - higher threshold for stricter dedup
+    'tr': 0.85,
+    'eu': 0.9,
 }
 
 
@@ -43,7 +42,6 @@ class CrossRunDeduplicator:
         self,
         storage_client: storage.Client,
         bucket_name: str,
-        threshold: float = CROSS_RUN_DEDUP_THRESHOLD,
         region_thresholds: Optional[Dict[str, float]] = None
     ):
         """
@@ -52,32 +50,32 @@ class CrossRunDeduplicator:
         Args:
             storage_client: GCS storage client
             bucket_name: GCS bucket name
-            threshold: Default similarity threshold for deduplication (default 0.7)
             region_thresholds: Optional dict mapping region codes to thresholds
-                              e.g., {'tr': 0.7, 'eu': 0.9}
+                              e.g., {'tr': 0.85, 'eu': 0.9}
         """
         self.storage_client = storage_client
         self.bucket_name = bucket_name
-        self.threshold = threshold
         self.region_thresholds = region_thresholds or DEFAULT_REGION_THRESHOLDS.copy()
+        # Fallback for unknown regions uses EU threshold (stricter)
+        self.fallback_threshold = self.region_thresholds.get('eu', 0.9)
         logger.info(
-            f"CrossRunDeduplicator initialized: default_threshold={threshold}, "
-            f"region_thresholds={self.region_thresholds}"
+            f"CrossRunDeduplicator initialized: region_thresholds={self.region_thresholds}, "
+            f"fallback_threshold={self.fallback_threshold}"
         )
 
     def get_threshold_for_region(self, region: Optional[str]) -> float:
         """
         Get the deduplication threshold for a specific region.
-        
+
         Args:
             region: Region code (e.g., 'tr', 'eu') or None
-            
+
         Returns:
-            Threshold for the region, or default threshold if region not configured
+            Threshold for the region, or fallback threshold if region not configured
         """
         if region and region.lower() in self.region_thresholds:
             return self.region_thresholds[region.lower()]
-        return self.threshold
+        return self.fallback_threshold
 
     def list_previous_embedding_files(
         self,

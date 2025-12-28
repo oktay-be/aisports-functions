@@ -60,13 +60,12 @@ VERTEX_AI_LOCATION = os.getenv('VERTEX_AI_LOCATION', 'us-central1')
 
 # Embedding and grouping configuration
 EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'text-embedding-004')
-CROSS_RUN_DEDUP_THRESHOLD = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD', '0.7'))
 GROUPING_THRESHOLD = float(os.getenv('GROUPING_THRESHOLD', '0.8'))
 
 # Region-specific cross-run dedup thresholds
-# TR: Lower threshold (0.7) - Turkish content has higher overlap across sources
-# EU: Higher threshold (0.9) - European content more unique, stricter dedup
-CROSS_RUN_DEDUP_THRESHOLD_TR = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD_TR', '0.7'))
+# TR: 0.85 - Turkish content needs higher threshold to avoid false positives on transfer news
+# EU: 0.9 - European content more unique, stricter dedup
+CROSS_RUN_DEDUP_THRESHOLD_TR = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD_TR', '0.85'))
 CROSS_RUN_DEDUP_THRESHOLD_EU = float(os.getenv('CROSS_RUN_DEDUP_THRESHOLD_EU', '0.9'))
 
 # Language normalization map
@@ -170,11 +169,10 @@ class ArticleProcessor:
                     'eu': CROSS_RUN_DEDUP_THRESHOLD_EU,
                 }
                 logger.info(f"Region thresholds configured: {region_thresholds}")
-                
+
                 self.deduplicator = CrossRunDeduplicator(
                     storage_client=self.storage_client,
                     bucket_name=GCS_BUCKET_NAME,
-                    threshold=CROSS_RUN_DEDUP_THRESHOLD,
                     region_thresholds=region_thresholds
                 )
 
@@ -380,7 +378,6 @@ class ArticleProcessor:
             self.save_json_to_gcs({
                 "dropped_articles": dedup_log,
                 "count": len(dedup_log),
-                "default_threshold": CROSS_RUN_DEDUP_THRESHOLD,
                 "region_thresholds": {
                     "tr": CROSS_RUN_DEDUP_THRESHOLD_TR,
                     "eu": CROSS_RUN_DEDUP_THRESHOLD_EU
@@ -513,7 +510,8 @@ class ArticleProcessor:
             "grouped_article_count": sum(len(g['articles']) for g in grouped_articles),
             "output_files": outputs,
             "thresholds": {
-                "cross_run_dedup": CROSS_RUN_DEDUP_THRESHOLD,
+                "cross_run_dedup_tr": CROSS_RUN_DEDUP_THRESHOLD_TR,
+                "cross_run_dedup_eu": CROSS_RUN_DEDUP_THRESHOLD_EU,
                 "grouping": GROUPING_THRESHOLD
             },
             "created_at": datetime.now(timezone.utc).isoformat()
