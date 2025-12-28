@@ -1,0 +1,222 @@
+# =============================================================================
+# Test Python Functions
+# =============================================================================
+# Runs pytest with coverage for all Cloud Functions in the aisports-functions
+# repository. Coverage reports are uploaded to Codecov and displayed in the
+# GitHub Actions summary.
+#
+# TRIGGERS:
+#   - Push to any branch with Python file changes
+#   - Pull requests to main/dev branches
+#   - Manual trigger via workflow_dispatch
+#   - Called by other workflows via workflow_call
+#
+# OUTPUTS:
+#   - Coverage report in GitHub Actions summary
+#   - Coverage badge via Codecov
+#   - Test results in PR comments
+# =============================================================================
+
+name: Test Python Functions
+
+on:
+  push:
+    branches:
+      - dev
+      - main
+      - 'feature/**'
+    paths:
+      - '**/*.py'
+      - 'tests/**'
+      - 'requirements-dev.txt'
+      - 'pytest.ini'
+      - 'setup.cfg'
+      - '.github/workflows/test.yml'
+  pull_request:
+    branches:
+      - main
+      - dev
+    paths:
+      - '**/*.py'
+      - 'tests/**'
+      - 'requirements-dev.txt'
+      - 'pytest.ini'
+      - 'setup.cfg'
+  workflow_dispatch:
+  workflow_call:
+    outputs:
+      result:
+        description: 'Test result (success/failure)'
+        value: ${{ jobs.test.outputs.result }}
+      coverage:
+        description: 'Overall coverage percentage'
+        value: ${{ jobs.test.outputs.coverage }}
+
+permissions:
+  contents: read
+  pull-requests: write  # For PR comments
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    outputs:
+      result: ${{ steps.test.outcome }}
+      coverage: ${{ steps.coverage.outputs.percentage }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: 'requirements-dev.txt'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Run tests with coverage
+        id: test
+        run: |
+          pytest \
+            --cov \
+            --cov-report=xml:coverage.xml \
+            --cov-report=json:coverage.json \
+            --cov-report=term-missing \
+            --junitxml=test-results.xml \
+            -v
+        continue-on-error: true
+
+      - name: Extract coverage percentage
+        id: coverage
+        if: always()
+        run: |
+          if [ -f coverage.json ]; then
+            COVERAGE=$(python -c "import json; data=json.load(open('coverage.json')); print(f\"{data['totals']['percent_covered']:.1f}\")")
+            echo "percentage=$COVERAGE" >> $GITHUB_OUTPUT
+            echo "Coverage: $COVERAGE%"
+          else
+            echo "percentage=0" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate coverage summary
+        if: always()
+        run: |
+          echo "## Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ "${{ steps.test.outcome }}" == "success" ]; then
+            echo "### Status: Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### Status: Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -f coverage.json ]; then
+            echo "| Function | Lines | Branches | Coverage |" >> $GITHUB_STEP_SUMMARY
+            echo "|----------|-------|----------|----------|" >> $GITHUB_STEP_SUMMARY
+
+            python3 << 'EOF' >> $GITHUB_STEP_SUMMARY
+          import json
+
+          with open('coverage.json') as f:
+              data = json.load(f)
+
+          # Group by function
+          functions = {}
+          for file_path, file_data in data.get('files', {}).items():
+              # Extract function name from path
+              parts = file_path.split('/')
+              if len(parts) >= 1 and parts[0].endswith('_function'):
+                  func_name = parts[0].replace('_function', '')
+              elif len(parts) >= 1 and parts[0].endswith('_service'):
+                  func_name = parts[0].replace('_service', '')
+              else:
+                  func_name = 'other'
+
+              if func_name not in functions:
+                  functions[func_name] = {'lines': 0, 'lines_covered': 0, 'branches': 0, 'branches_covered': 0}
+
+              summary = file_data.get('summary', {})
+              functions[func_name]['lines'] += summary.get('num_statements', 0)
+              functions[func_name]['lines_covered'] += summary.get('covered_lines', 0)
+              functions[func_name]['branches'] += summary.get('num_branches', 0)
+              functions[func_name]['branches_covered'] += summary.get('covered_branches', 0)
+
+          # Print per-function coverage
+          for func_name in sorted(functions.keys()):
+              stats = functions[func_name]
+              if stats['lines'] > 0:
+                  line_pct = (stats['lines_covered'] / stats['lines']) * 100
+              else:
+                  line_pct = 0
+              if stats['branches'] > 0:
+                  branch_pct = (stats['branches_covered'] / stats['branches']) * 100
+              else:
+                  branch_pct = 100  # No branches = 100%
+
+              status = "" if line_pct >= 70 else ""
+              print(f"| {func_name} | {line_pct:.1f}% | {branch_pct:.1f}% | {status} |")
+
+          # Print totals
+          totals = data.get('totals', {})
+          total_pct = totals.get('percent_covered', 0)
+          total_branch = totals.get('percent_covered_branches', 0) if totals.get('num_branches', 0) > 0 else 100
+          total_status = "" if total_pct >= 70 else ""
+          print(f"| **TOTAL** | **{total_pct:.1f}%** | **{total_branch:.1f}%** | {total_status} |")
+          EOF
+
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "**Overall Coverage: ${{ steps.coverage.outputs.percentage }}%**" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "Minimum required: 70%" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No coverage data available." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false
+          verbose: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            coverage.xml
+            coverage.json
+            test-results.xml
+          retention-days: 30
+
+      - name: Check test result
+        if: steps.test.outcome == 'failure'
+        run: |
+          echo "Tests failed!"
+          exit 1
+
+      - name: Check coverage threshold
+        if: steps.test.outcome == 'success'
+        run: |
+          COVERAGE="${{ steps.coverage.outputs.percentage }}"
+          THRESHOLD=70
+
+          if (( $(echo "$COVERAGE < $THRESHOLD" | bc -l) )); then
+            echo "Coverage ($COVERAGE%) is below threshold ($THRESHOLD%)"
+            exit 1
+          fi
+
+          echo "Coverage ($COVERAGE%) meets threshold ($THRESHOLD%)"
