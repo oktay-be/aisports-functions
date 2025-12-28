@@ -7,6 +7,20 @@ Tests the Pydantic models and helper functions for the article processor.
 import pytest
 import json
 from datetime import datetime
+import sys
+from unittest.mock import MagicMock
+
+# Mock Google Cloud modules before importing
+mock_storage = MagicMock()
+sys.modules['google.cloud.storage'] = mock_storage
+mock_genai = MagicMock()
+sys.modules['google'] = MagicMock()
+sys.modules['google.genai'] = mock_genai
+sys.modules['google.genai.types'] = MagicMock()
+mock_google_cloud = MagicMock()
+mock_google_cloud.storage = mock_storage
+sys.modules['google.cloud'] = mock_google_cloud
+
 from article_processor_function.models import (
     RawArticle,
     ArticleGroupInput,

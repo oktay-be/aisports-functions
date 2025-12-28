@@ -9,6 +9,10 @@ import sys
 mock_zoneinfo = MagicMock()
 sys.modules['zoneinfo'] = mock_zoneinfo
 
+# Mock aiohttp before importing
+mock_aiohttp = MagicMock()
+sys.modules['aiohttp'] = mock_aiohttp
+
 mock_storage = MagicMock()
 sys.modules['google.cloud.storage'] = mock_storage
 mock_secretmanager = MagicMock()

@@ -8,6 +8,18 @@ import pytest
 import json
 from unittest.mock import Mock, MagicMock, patch
 from pathlib import Path
+import sys
+
+# Mock Google Cloud modules before importing
+mock_storage = MagicMock()
+sys.modules['google.cloud.storage'] = mock_storage
+mock_genai = MagicMock()
+sys.modules['google'] = MagicMock()
+sys.modules['google.genai'] = mock_genai
+sys.modules['google.genai.types'] = MagicMock()
+mock_google_cloud = MagicMock()
+mock_google_cloud.storage = mock_storage
+sys.modules['google.cloud'] = mock_google_cloud
 
 from article_processor_function.llm_processor import LLMProcessor
 from article_processor_function.grouping_service import ArticleGroup

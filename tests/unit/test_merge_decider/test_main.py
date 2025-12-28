@@ -8,6 +8,20 @@ import sys
 mock_zoneinfo = MagicMock()
 sys.modules['zoneinfo'] = mock_zoneinfo
 
+# Mock Google Cloud modules before importing
+mock_storage = MagicMock()
+sys.modules['google.cloud.storage'] = mock_storage
+mock_pubsub = MagicMock()
+sys.modules['google.cloud.pubsub_v1'] = mock_pubsub
+mock_genai = MagicMock()
+sys.modules['google'] = MagicMock()
+sys.modules['google.genai'] = mock_genai
+sys.modules['google.genai.types'] = MagicMock()
+mock_google_cloud = MagicMock()
+mock_google_cloud.storage = mock_storage
+mock_google_cloud.pubsub_v1 = mock_pubsub
+sys.modules['google.cloud'] = mock_google_cloud
+
 # Mock Google Cloud clients before importing
 with patch.dict('os.environ', {'ENVIRONMENT': 'local'}):
     from merge_decider_function.main import (

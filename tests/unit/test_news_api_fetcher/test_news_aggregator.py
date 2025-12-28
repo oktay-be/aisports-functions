@@ -2,7 +2,12 @@
 
 import pytest
 from datetime import datetime, timedelta
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+import sys
+
+# Mock aiohttp before importing
+mock_aiohttp = MagicMock()
+sys.modules['aiohttp'] = mock_aiohttp
 
 from news_api_fetcher_function.news_aggregator import (
     is_content_complete,

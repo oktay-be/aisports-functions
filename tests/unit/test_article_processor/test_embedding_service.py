@@ -7,6 +7,13 @@ Tests the embedding service text preparation logic.
 import pytest
 import numpy as np
 from unittest.mock import Mock, MagicMock, patch
+import sys
+
+# Mock Google Cloud modules before importing
+mock_genai = MagicMock()
+sys.modules['google'] = MagicMock()
+sys.modules['google.genai'] = mock_genai
+sys.modules['google.genai.types'] = MagicMock()
 
 from article_processor_function.embedding_service import EmbeddingService
 
