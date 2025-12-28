@@ -49,8 +49,9 @@ env:
   TRIGGER_LOCATION: 'us'  # Must match GCS bucket location
 
 permissions:
-  id-token: write  # Required for Workload Identity Federation
-  contents: read   # Required to checkout repository
+  id-token: write    # Required for Workload Identity Federation
+  contents: read     # Required to checkout repository
+  pull-requests: write  # Required for test workflow PR comments
 
 jobs:
   # Run tests before deployment

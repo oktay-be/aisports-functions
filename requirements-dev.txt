@@ -5,28 +5,6 @@
 pytest>=8.0.0
 pytest-cov>=4.1.0
 pytest-mock>=3.12.0
-pytest-asyncio>=0.23.0
 
-# HTTP API mocking
-responses>=0.25.0
-
-# Time mocking
-freezegun>=1.2.0
-
-# Type checking (optional but recommended)
-mypy>=1.8.0
-
-# Code formatting (optional)
-black>=24.0.0
-isort>=5.13.0
-
-# Include all function requirements for testing
--r article_processor_function/requirements.txt
--r merge_decider_function/requirements.txt
--r article_enricher_function/requirements.txt
--r scraper_function/requirements.txt
--r news_api_fetcher_function/requirements.txt
--r region_diff_function/requirements.txt
--r jsonl_transformer_function/requirements.txt
--r gcs_api_function/requirements.txt
--r source_discoverer_function/requirements.txt
+# Core dependencies needed for tests
+numpy>=1.24.0
