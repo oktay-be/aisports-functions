@@ -1,3 +1,30 @@
+# =============================================================================
+# Deploy Region Diff Function
+# =============================================================================
+# Cloud Function that compares articles between EU and TR regions to find
+# stories unique to one region.
+#
+# AUTHENTICATION:
+#   - Uses Workload Identity Federation (no service account keys stored in GitHub)
+#   - Service account: GCP_SERVICE_ACCOUNT
+#
+# SECRET MANAGEMENT:
+#   - This function does not use any secrets
+#   - All configuration is passed via environment variables
+#
+# GITHUB VARIABLES USED:
+#   - GCP_PROJECT_NUMBER: GCP project number for WIF
+#   - WIF_POOL_ID: Workload Identity Pool ID
+#   - WIF_PROVIDER_ID: Workload Identity Provider ID
+#   - GCP_SERVICE_ACCOUNT: Service account email
+#   - GOOGLE_CLOUD_PROJECT: GCP project ID
+#   - REGION: Deployment region
+#   - GCS_BUCKET_NAME: GCS bucket for data storage
+#   - FUNCTION_ENVIRONMENT: Environment name
+#
+# TRIGGER: GCS object finalized (ingestion/**/enriched_*_articles.json)
+# =============================================================================
+
 name: Deploy Region Diff Function
 
 on:
@@ -5,21 +32,22 @@ on:
     branches:
       - main
       - dev
+      - 'feature/**'
     paths:
       - 'region_diff_function/**'
       - '.github/workflows/deploy-region-diff-function.yml'
   workflow_dispatch:
 
 env:
-  TRIGGER_LOCATION: 'us'  # Must match GCS bucket location
-  REGION_DIFF_THRESHOLD: '0.75'  # Similarity threshold for considering articles as "same story"
-  REGION1: 'eu'           # Source region (find articles unique to this region)
-  REGION2: 'tr'           # Comparison region
-  HISTORICAL_DIFF_DEPTH: '3'  # Days of TR history to compare against (1 = same day only)
+  TRIGGER_LOCATION: 'us'           # Must match GCS bucket location
+  DIFF_THRESHOLD: '0.75'           # Similarity threshold for "same story"
+  REGION1: 'eu'                    # Source region (find articles unique to this)
+  REGION2: 'tr'                    # Comparison region
+  HISTORICAL_DIFF_DEPTH: '3'       # Days of history to compare (1 = same day only)
 
 permissions:
-  id-token: write
-  contents: read
+  id-token: write  # Required for Workload Identity Federation
+  contents: read   # Required to checkout repository
 
 jobs:
   deploy:
@@ -29,6 +57,7 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # Authenticate using Workload Identity Federation (keyless authentication)
     - name: Authenticate to Google Cloud (Workload Identity Federation)
       uses: google-github-actions/auth@v2
       with:
