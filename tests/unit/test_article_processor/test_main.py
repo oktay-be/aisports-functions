@@ -8,6 +8,12 @@ import sys
 mock_zoneinfo = MagicMock()
 sys.modules['zoneinfo'] = mock_zoneinfo
 
+# Mock pydantic before importing (needed by models.py)
+mock_pydantic = MagicMock()
+mock_pydantic.BaseModel = MagicMock
+mock_pydantic.Field = MagicMock(return_value=None)
+sys.modules['pydantic'] = mock_pydantic
+
 # Mock Google Cloud modules before importing
 mock_storage = MagicMock()
 sys.modules['google.cloud.storage'] = mock_storage
